@@ -354,6 +354,17 @@ namespace osu.Desktop
                 // Fall through with the framework default.
             }
 
+            if (OperatingSystem.IsLinux())
+            {
+                // Prevent SDL from escalating threads to SCHED_RR via RealtimeKit (rtkit).
+                // Tight framework spin-wait loops exhaust Linux RLIMIT_RTTIME (200ms) and cause kernel SIGKILL (exit 137).
+                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SDL_THREAD_PRIORITY_POLICY")))
+                    Environment.SetEnvironmentVariable("SDL_THREAD_PRIORITY_POLICY", "other");
+
+                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL")))
+                    Environment.SetEnvironmentVariable("SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL", "0");
+            }
+
             string gameName = base_game_name;
             bool tournamentClient = false;
 
