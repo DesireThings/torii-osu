@@ -1,94 +1,86 @@
-# Contributing Guidelines
+# Contributing to Torii
 
-Thank you for showing interest in the development of osu!. We aim to provide a good collaborating environment for everyone involved, and as such have decided to list some of the most important things to keep in mind in the process. The guidelines below have been chosen based on past experience.
+Thank you for your interest in contributing to Torii! We aim to provide an open, collaborative environment for everyone involved. These guidelines outline our development process, PR expectations, and repository scope.
 
-## Foreword on AI usage
+## Foreword on Contributions & Standards
 
-Our team believes in **human contributions**. Any contribution – be it an issue report or a pull request – which is created by, documented by, or aided by AI/LLM usage will typically be **closed and locked without further discussion**.
+Our team values **high-quality, human-crafted contributions**. We respect clean engineering and maintainability:
+
+- **Single-responsibility changes**: We prefer smaller, testable, focused pull requests over large monolithic diffs.
+- **Clean separation**: Never mix unrelated build, dependency, or CI changes into feature or performance PRs.
+- **Thorough local testing**: Code should be validated and tested locally prior to opening a pull request. Contributions generated carelessly or without verification may be closed without review.
 
 ## Table of contents
 
 1. [Reporting bugs](#reporting-bugs)
-2. [Providing general feedback](#providing-general-feedback)
-3. [Issue or discussion?](#issue-or-discussion)
+2. [Providing general feedback & discussions](#providing-general-feedback--discussions)
+3. [Scope: Torii vs Upstream osu!](#scope-torii-vs-upstream-osu)
 4. [Submitting pull requests](#submitting-pull-requests)
-5. [Resources](#resources)
+5. [Development workflow & coding standards](#development-workflow--coding-standards)
+6. [Resources & Community](#resources--community)
 
 ## Reporting bugs
 
-A **bug** is a situation in which there is something clearly *and objectively* wrong with the game. Examples of applicable bug reports are:
+A **bug** is a situation where something is clearly and objectively broken. Examples of applicable bug reports include:
 
-- The game crashes to desktop when I start a beatmap
-- Friends appear twice in the friend listing
-- The game slows down a lot when I play this specific map
-- A piece of text is overlapping another piece of text on the screen
+- The game crashes when entering a screen or playing a beatmap.
+- Torii-specific UI elements (e.g. briefing overlay, aura settings) glitch or fail to render.
+- Network or profile sync issues when connecting to the Torii server.
+- Severe performance regressions specific to Torii or Torii Nova builds.
 
-To track bug reports, we primarily use GitHub **issues**. When opening an issue, please keep in mind the following:
+To track bug reports, use the [Torii GitHub Issues](https://github.com/ShikkesoraSIM/torii-osu/issues) tracker. When opening an issue:
 
-- Before opening the issue, please search for any similar existing issues using the text search bar and the issue labels. This includes both open and closed issues (we may have already fixed something, but the fix hasn't yet been released).
-- When opening the issue, please fill out as much of the issue template as you can. In particular, please make sure to include logs and screenshots as much as possible. The instructions on how to find the log files are included in the issue template.
-- We may ask you for follow-up information to reproduce or debug the problem. Please look out for this and provide follow-up info if we request it.
+- Search existing open and closed issues first to check if the problem has already been reported or resolved.
+- Use the **Torii Bug Report** template, filling out your OS, build version / stream (Torii or Torii Nova), logs, and reproduction steps.
+- Provide logs from your logs directory (on desktop: accessible via game settings; on Android: `Android/data/sh.shikkesora.torii/files/logs`).
 
-If we cannot reproduce the issue, it is deemed low priority, or it is deemed to be specific to your setup in some way, the issue may be downgraded to a discussion. This will be done by a maintainer for you.
-
-## Providing general feedback
+## Providing general feedback & discussions
 
 If you wish to:
 
-- provide *subjective* feedback on the game (about how the UI looks, about how the default skin works, about game mechanics, about how the PP and scoring systems work, etc.),
-- suggest a new feature to be added to the game,
-- report a non-specific problem with the game that you think may be connected to your hardware or operating system specifically,
+- Provide subjective feedback on Torii UI, audio, or client feel.
+- Propose new client polish features, auras, or quality-of-life enhancements.
+- Discuss development of the experimental Torii Nova stream.
 
-then it is generally best to start with a **discussion** first. Discussions are a good avenue to group subjective feedback on a single topic, or gauge interest in a particular feature request.
+Please open a GitHub Discussion or join the discussion in our [Discord server](https://discord.gg/zeuKQquCSE).
 
-When opening a discussion, please keep in mind the following:
+## Scope: Torii vs Upstream osu!
 
-- Use the search function to see if your idea has been proposed before, or if there is already a thread about a particular issue you wish to raise.
-- If proposing a feature, please try to explain the feature in as much detail as possible.
-- If you're reporting a non-specific problem, please provide applicable logs, screenshots, or video that illustrate the issue.
+Torii is an independent community fork of osu! (lazer). To keep development maintainable and clean:
 
-If a discussion gathers enough traction, then it may be converted into an issue. This will be done by a maintainer for you.
+- **Torii Scope**:
+  - Torii client features (auras, briefing overlays, custom layout options, theme tweaks).
+  - Torii Nova experimental engine improvements (platform optimizations, threading, low-latency tests).
+  - Interoperability with Torii server infrastructure (`g0v0-server`).
+  - Bug fixes and client-side performance enhancements.
+- **Upstream Scope (ppy/osu)**:
+  - Fundamental rhythm game rulesets (standard, taiko, catch, mania scoring and PP calculations).
+  - Core beatmap decoding formats and standards.
+  - osu!framework foundational primitives (these should ideally be contributed upstream to `ppy/osu-framework`).
 
-## Issue or discussion?
-
-We realise that the line between an issue and a discussion may be fuzzy, so while we ask you to use your best judgement based on the description above, please don't think about it too hard either. Feedback in a slightly wrong place is better than no feedback at all.
-
-When in doubt, it's probably best to start with a discussion first. We will escalate to issues as needed.
+Because Torii periodically rebases and merges updates from upstream `ppy/osu`, general rhythm game mechanics or core framework features should usually be proposed upstream first.
 
 ## Submitting pull requests
 
-While pull requests from unaffiliated contributors are welcome, please note that due to significant community interest and limited review throughput, the core team's primary focus is on the issues which are currently [on the roadmap](https://github.com/orgs/ppy/projects/7/views/6). Reviewing PRs that fall outside of the scope of the roadmap is done on a best-effort basis, so please be aware that it may take a while before a core maintainer gets around to review your change.
+We welcome pull requests from community contributors. To ensure smooth review:
 
-The [issue tracker](https://github.com/ppy/osu/issues) should provide plenty of issues to start with. In the case of simple issues, a direct PR is okay. However, if you decide to work on an existing issue which doesn't seem trivial, **please ask us first**. This way we can try to estimate if it is a good fit for you and provide the correct direction on how to address it. In addition, note that while we do not rule out external contributors from working on roadmapped issues, we will generally prefer to handle them ourselves unless they're not very time sensitive.
+1. **Discuss before big changes**: If you plan to implement a new feature or refactor existing systems, open an issue or discussion on Discord first so we can align on architecture and direction.
+2. **Branch off `master`**: Always create your feature branch from the latest `master` of `ShikkesoraSIM/torii-osu`.
+3. **Keep PRs focused**: Keep your PR to a single logical change. Do not bundle formatting overhauls, submodule bumps, or CI updates with feature code.
+4. **Target branch**: All pull requests should target `master`.
+5. **Allow edits**: Keep the *Allow edits from maintainers* option enabled so maintainers can assist with minor fixes or rebases.
 
-If you'd like to propose a subjective change to one of the visual aspects of the game, or there is a bigger task you'd like to work on, but there is no corresponding issue or discussion thread yet for it, **please open a discussion or issue first** to avoid wasted effort. This in particular applies if you want to work on [one of the available designs from the osu! Figma master library](https://www.figma.com/file/VIkXMYNPMtQem2RJg9k2iQ/Master-Library).
+## Development workflow & coding standards
 
-Aside from the above, below is a brief checklist of things to watch out when you're preparing your code changes:
+- **C# & .NET**: Torii targets .NET 8 / modern C#. Follow standard C# idioms and conventions used throughout the repository.
+- **Building**: Validate that your changes compile cleanly with `dotnet build osu.Desktop/osu.Desktop.csproj`.
+- **Testing**: Add unit tests or visual tests (`osu.Game.Tests`) wherever practical. Ensure existing tests pass (`dotnet test`).
+- **Code Style**: Format your code cleanly matching the repository's `.editorconfig` rules. You can run `dotnet format` or use the repository's inspection scripts (`InspectCode.sh` / `InspectCode.ps1`).
+- **Submodules & Pins**: Keep framework submodule references intact and matching repository configuration.
 
-- Make sure you're comfortable with the principles of object-oriented programming, the syntax of C\# and your development environment.
-- Make sure you are familiar with [git](https://git-scm.com/) and [the pull request workflow](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/proposing-changes-to-your-work-with-pull-requests).
-- Please do not make code changes via the GitHub web interface.
-- Please add tests for your changes. We expect most new features and bugfixes to have test coverage, unless the effort of adding them is prohibitive. The visual testing methodology we use is described in more detail [here](https://github.com/ppy/osu-framework/wiki/Development-and-Testing).
-- Please run tests and code style analysis (via `InspectCode.{ps1,sh}` scripts in the root of this repository) before opening the PR. This is particularly important if you're a first-time contributor, as CI will not run for your PR until we allow it to do so.
-- **Do not run the game in release configuration at any point during your testing** (the sole exception to this being benchmarks). Using release is an unnecessary and harmful practice, and can even lead to you losing your local realm database if you start making changes to the schema. The debug configuration has a completely separated full-stack environment, including a development website instance at https://dev.ppy.sh/. It is permitted to register an account on that development instance for testing purposes and not worry about multi-accounting infractions.
+## Resources & Community
 
-After you're done with your changes and you wish to open the PR, please observe the following recommendations:
-
-- Please submit the pull request from a [topic branch](https://git-scm.com/book/en/v2/Git-Branching-Branching-Workflows#_topic_branch) (not `master`), and keep the *Allow edits from maintainers* check box selected, so that we can push fixes to your PR if necessary.
-- Please pick the following target branch for your pull request:
-    - `pp-dev`, if the change impacts star rating or performance points calculations for any of the rulesets,
-    - `master`, otherwise.
-- Please avoid pushing untested or incomplete code.
-- Please do not force-push or rebase unless we ask you to.
-- Please do not merge `master` continually if there are no conflicts to resolve. We will do this for you when the change is ready for merge.
-
-We are highly committed to quality when it comes to the osu! project. This means that contributions from less experienced community members can take multiple rounds of review to get to a mergeable state. We try our utmost best to never conflate a person with the code they authored, and to keep the discussion focused on the code at all times. Please consider our comments and requests a learning experience.
-
-If you're uncertain about some part of the codebase or some inner workings of the game and framework, please reach out either by leaving a comment in the relevant issue, discussion, or PR thread, or by posting a message in the [development Discord server](https://discord.gg/ppy). We will try to help you as much as we can.
-
-## Resources
-
-- [Development roadmap](https://github.com/orgs/ppy/projects/7/views/6): What the core team is currently working on
-- [`ppy/osu-framework` wiki](https://github.com/ppy/osu-framework/wiki): Contains introductory information about osu!framework, the bespoke 2D game framework we use for the game
-- [`ppy/osu` wiki](https://github.com/ppy/osu/wiki): Contains articles about various technical aspects of the game
-- [Figma master library](https://www.figma.com/file/VIkXMYNPMtQem2RJg9k2iQ/Master-Library): Contains finished and draft designs for osu!
+- [Torii Issues](https://github.com/ShikkesoraSIM/torii-osu/issues): Bug reports and feature proposals.
+- [Torii Discord](https://discord.gg/zeuKQquCSE): Development discussions, testing feedback, and community chat.
+- [Torii Web Portal](https://lazer.shikkesora.com/): Official portal for Torii.
+- [`ppy/osu-framework` Wiki](https://github.com/ppy/osu-framework/wiki): Documentation and architectural guides for the 2D framework powering the client.

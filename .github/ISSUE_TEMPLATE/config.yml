@@ -1,12 +1,9 @@
 blank_issues_enabled: false
 contact_links:
-    - name: Help
-      url: https://github.com/ppy/osu/discussions/categories/q-a
-      about: osu! not working or performing as you'd expect? Not sure it's a bug? Check the Q&A section!
-    - name: Suggestions or feature request
-      url: https://github.com/ppy/osu/discussions/categories/ideas
-      about: Got something you think should change or be added? Search for or start a new discussion!
-    - name: osu!stable issues
-      url: https://github.com/ppy/osu-stable-issues
-      about: For osu!(stable) - ie. the current "live" game version, check out the dedicated repository. Note that this is for serious bug reports only, not tech support.
+    - name: Torii Community Discord
+      url: https://discord.gg/zeuKQquCSE
+      about: Need help, have questions, or want to discuss Torii? Join the official Torii Discord server!
+    - name: Torii Web Portal
+      url: https://lazer.shikkesora.com/
+      about: Access your profile, rankings, leaderboards, and server stats on the Torii web portal.
 
