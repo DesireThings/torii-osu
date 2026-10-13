@@ -26,6 +26,7 @@ using osu.Game.Rulesets.UI;
 using osu.Game.Scoring;
 using osu.Game.Skinning;
 using osu.Game.Storyboards;
+using osu.Game.Utils;
 
 namespace osu.Game.Beatmaps
 {
@@ -180,6 +181,225 @@ namespace osu.Game.Beatmaps
             }
 
             return GetAsync(new DifficultyCacheLookup(localBeatmapInfo, localRulesetInfo, mods), cancellationToken, computationDelay);
+        }
+
+        /// <summary>
+        /// Retrieves the currently cached difficulty if available without performing an asynchronous computation.
+        /// </summary>
+        /// <param name="beatmapInfo">The beatmap to check.</param>
+        /// <param name="rulesetInfo">The ruleset to check with.</param>
+        /// <param name="mods">The mods to check with.</param>
+        /// <returns>The cached <see cref="StarDifficulty"/> if available; otherwise <c>null</c>.</returns>
+        public StarDifficulty? GetExistingDifficulty(IBeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
+        {
+            rulesetInfo ??= beatmapInfo.Ruleset;
+
+            if (beatmapInfo is not BeatmapInfo localBeatmapInfo || rulesetInfo is not RulesetInfo localRulesetInfo)
+                return null;
+
+            var lookup = new DifficultyCacheLookup(localBeatmapInfo, localRulesetInfo, mods);
+            return CheckExists(lookup, out var existing) ? existing : null;
+        }
+
+        /// <summary>
+        /// Retrieves the effective star rating for a beatmap, considering active mods and cached difficulties.
+        /// If not yet computed in the difficulty cache, falls back to a fast approximation for difficulty-altering mods.
+        /// </summary>
+        /// <param name="beatmapInfo">The beatmap.</param>
+        /// <param name="rulesetInfo">The ruleset.</param>
+        /// <param name="mods">The mods.</param>
+        /// <returns>The effective star rating.</returns>
+        public double GetEffectiveStarRating(BeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
+        {
+            if (mods == null || !ModUtils.FlattenMods(mods).Any(ModAffectsDifficulty))
+                return beatmapInfo.StarRating;
+
+            var existing = GetExistingDifficulty(beatmapInfo, rulesetInfo, mods);
+            if (existing != null)
+                return existing.Value.Stars;
+
+            return ApproximateStarRating(beatmapInfo, rulesetInfo, mods);
+        }
+
+        /// <summary>
+        /// Determines whether a given mod alters beatmap difficulty / star rating.
+        /// </summary>
+        public static bool ModAffectsDifficulty(Mod mod) =>
+            mod is IApplicableToDifficulty || mod is IApplicableToRate || mod is ModFlashlight || mod is ModHidden;
+
+        /// <summary>
+        /// Computes a fast O(1) approximation of star rating when difficulty-altering mods are applied
+        /// and the exact calculation is not yet available in the cache.
+        /// </summary>
+        public static double ApproximateStarRating(IBeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo, IEnumerable<Mod> mods)
+        {
+            double baseStars = beatmapInfo.StarRating;
+            if (baseStars <= 0)
+                return baseStars;
+
+            string rulesetName = rulesetInfo?.ShortName ?? beatmapInfo.Ruleset?.ShortName ?? @"osu";
+            double rate = ModUtils.CalculateRateWithMods(mods);
+            var flattenedMods = ModUtils.FlattenMods(mods).ToList();
+
+            double multiplier = 1.0;
+
+            switch (rulesetName)
+            {
+                case "taiko":
+                    if (Math.Abs(rate - 1.0) > 0.001)
+                    {
+                        double exp = rate > 1.0 ? 0.726 : 0.85;
+                        multiplier *= Math.Pow(rate, exp);
+                    }
+
+                    foreach (var mod in flattenedMods)
+                    {
+                        switch (mod)
+                        {
+                            case ModHardRock:
+                                multiplier *= 1.05;
+                                break;
+
+                            case ModEasy:
+                                multiplier *= 0.90;
+                                break;
+                        }
+                    }
+                    break;
+
+                case "fruits":
+                    if (Math.Abs(rate - 1.0) > 0.001)
+                    {
+                        double exp = rate > 1.0 ? 0.602 : 0.75;
+                        multiplier *= Math.Pow(rate, exp);
+                    }
+
+                    foreach (var mod in flattenedMods)
+                    {
+                        switch (mod)
+                        {
+                            case ModHardRock:
+                                multiplier *= 1.10;
+                                break;
+
+                            case ModEasy:
+                                multiplier *= 0.85;
+                                break;
+                        }
+                    }
+                    break;
+
+                case "mania":
+                    if (Math.Abs(rate - 1.0) > 0.001)
+                    {
+                        double exp = rate > 1.0 ? 0.430 : 0.55;
+                        multiplier *= Math.Pow(rate, exp);
+                    }
+                    break;
+
+                case "osu":
+                default:
+                    var diff = beatmapInfo.Difficulty;
+                    double bpm = beatmapInfo.BPM;
+                    double ar = diff?.ApproachRate ?? 9f;
+                    double cs = diff?.CircleSize ?? 4f;
+                    double od = diff?.OverallDifficulty ?? 8f;
+                    int totalObjects = (beatmapInfo as BeatmapInfo)?.TotalObjectCount ?? -1;
+                    double length = (beatmapInfo as BeatmapInfo)?.Length ?? 0;
+
+                    // Clock rate scaling
+                    if (Math.Abs(rate - 1.0) > 0.001)
+                    {
+                        if (rate > 1.0)
+                        {
+                            // Base exponent scaling with base star rating
+                            double rateExp = 0.35 + 0.62 * (1.0 - Math.Exp(-0.35 * Math.Max(0, baseStars - 1.2)));
+
+                            // Speed stream bonus scaling when effective BPM > 200
+                            double effectiveBpm = bpm * rate;
+                            if (effectiveBpm > 200)
+                                rateExp += Math.Min(0.12, (effectiveBpm - 200) / 120.0 * 0.08);
+
+                            // Reading preempt strain when effective preempt < 500ms
+                            double preempt = IBeatmapDifficultyInfo.DifficultyRange(ar, 1800, 1200, 450) / rate;
+                            if (preempt < 500)
+                                rateExp += Math.Min(0.08, (500 - preempt) / 200.0 * 0.06);
+
+                            multiplier *= Math.Pow(rate, rateExp);
+                        }
+                        else
+                        {
+                            // HT scaling (rate < 1.0): drops faster for high star maps due to collapsing speed/reading strains
+                            double rateExp = 0.65 + 0.55 * Math.Clamp((baseStars - 1.5) / 7.0, 0.0, 1.0);
+                            multiplier *= Math.Pow(rate, rateExp);
+                        }
+                    }
+
+                    // Mod multipliers
+                    foreach (var mod in flattenedMods)
+                    {
+                        switch (mod)
+                        {
+                            case ModHardRock:
+                            {
+                                double hrFactor = 1.05 + 0.015 * Math.Min(8.0, baseStars) + 0.02 * Math.Max(0, cs * 1.3 - 5.0);
+                                multiplier *= hrFactor;
+                                break;
+                            }
+
+                            case ModEasy:
+                            {
+                                double ezFactor = 0.83;
+                                // In the reading rework (pp-dev), dense maps with halved AR cause high reading strain
+                                if (totalObjects > 0 && length > 0)
+                                {
+                                    double density = totalObjects / Math.Max(1.0, length / 1000.0);
+                                    if (density > 3.5 && ar >= 8.0)
+                                    {
+                                        double readingBoost = Math.Min(0.50, (density - 3.5) * 0.10 + Math.Min(0.30, (totalObjects / 1500.0) * 0.20));
+                                        ezFactor = 0.82 + readingBoost;
+                                    }
+                                }
+                                multiplier *= ezFactor;
+                                break;
+                            }
+
+                            case ModFlashlight:
+                            {
+                                double flFactor = 1.05 + 0.25 * Math.Clamp(totalObjects > 0 ? totalObjects / 1200.0 : 0.5, 0.0, 1.0);
+                                multiplier *= flFactor;
+                                break;
+                            }
+
+                            case ModHidden:
+                                multiplier *= 1.035;
+                                break;
+
+                            case ModDifficultyAdjust da:
+                                if (da.OverallDifficulty.Value is float odVal)
+                                {
+                                    float delta = odVal - (float)od;
+                                    multiplier *= Math.Pow(1.03, delta);
+                                }
+
+                                if (da.SettingsMap.TryGetValue("circle_size", out var csSetting) && csSetting is IBindable<float?> csBindable && csBindable.Value is float csVal)
+                                {
+                                    float delta = csVal - (float)cs;
+                                    multiplier *= Math.Pow(1.07, delta);
+                                }
+
+                                if (da.SettingsMap.TryGetValue("approach_rate", out var arSetting) && arSetting is IBindable<float?> arBindable && arBindable.Value is float arVal)
+                                {
+                                    float delta = arVal - (float)ar;
+                                    multiplier *= Math.Pow(1.025, delta);
+                                }
+                                break;
+                        }
+                    }
+                    break;
+            }
+
+            return baseStars * multiplier;
         }
 
         protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken cancellationToken = default)

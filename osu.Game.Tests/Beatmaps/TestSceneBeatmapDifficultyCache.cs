@@ -230,6 +230,92 @@ namespace osu.Game.Tests.Beatmaps
             ClassicAssert.AreEqual(expectedBracket, actualBracket);
         }
 
+        [Test]
+        public void TestGetExistingDifficulty()
+        {
+            var testCache = new TestBeatmapDifficultyCache();
+            var bInfo = new BeatmapInfo { ID = Guid.NewGuid(), StarRating = 4.0, Ruleset = new RulesetInfo { OnlineID = 0 } };
+            var mods = new Mod[] { new OsuModDoubleTime() };
+
+            // Not yet populated in cache
+            Assert.That(testCache.GetExistingDifficulty(bInfo, null, mods), Is.Null);
+
+            // Populate cache
+            testCache.ComputeDifficulty = _ => new StarDifficulty(6.0, 0);
+            var computed = testCache.GetDifficultyAsync(bInfo, null, mods).GetResultSafely();
+            Assert.That(computed, Is.Not.Null);
+
+            // Now existing difficulty returns the cached StarDifficulty
+            var existing = testCache.GetExistingDifficulty(bInfo, null, mods);
+            Assert.That(existing, Is.Not.Null);
+            Assert.That(existing.Value.Stars, Is.EqualTo(6.0));
+        }
+
+        [Test]
+        public void TestGetEffectiveStarRatingFallbackToApproximation()
+        {
+            var testCache = new TestBeatmapDifficultyCache();
+            var bInfo = new BeatmapInfo { ID = Guid.NewGuid(), StarRating = 4.0, Ruleset = new RulesetInfo { OnlineID = 0 } };
+
+            // Nomod returns base rating
+            Assert.That(testCache.GetEffectiveStarRating(bInfo), Is.EqualTo(4.0));
+
+            // Non-difficulty mods return base rating
+            var nonDiffMods = new Mod[] { new OsuModNoFail(), new OsuModAutoplay() };
+            Assert.That(testCache.GetEffectiveStarRating(bInfo, null, nonDiffMods), Is.EqualTo(4.0));
+
+            // DT without cache: falls back to approximation
+            var dtMods = new Mod[] { new OsuModDoubleTime() };
+            double effectiveDt = testCache.GetEffectiveStarRating(bInfo, null, dtMods);
+            Assert.That(effectiveDt, Is.GreaterThan(5.0).And.LessThan(6.5));
+
+            // Once in cache, returns exact cached value
+            testCache.ComputeDifficulty = _ => new StarDifficulty(7.2, 0);
+            testCache.GetDifficultyAsync(bInfo, null, dtMods).GetResultSafely();
+            Assert.That(testCache.GetEffectiveStarRating(bInfo, null, dtMods), Is.EqualTo(7.2));
+        }
+
+        [Test]
+        public void TestApproximateStarRatingFormulas()
+        {
+            var bInfo = new BeatmapInfo { StarRating = 4.0 };
+
+            // Nomod / empty mods
+            Assert.That(BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, Array.Empty<Mod>()), Is.EqualTo(4.0));
+
+            // HardRock: increases difficulty
+            double hrStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModHardRock() });
+            Assert.That(hrStars, Is.GreaterThan(4.3).And.LessThan(4.7));
+
+            // Easy: decreases difficulty
+            double ezStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModEasy() });
+            Assert.That(ezStars, Is.GreaterThan(3.1).And.LessThan(3.5));
+
+            // Flashlight: increases difficulty
+            double flStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModFlashlight() });
+            Assert.That(flStars, Is.GreaterThan(4.4).And.LessThan(5.0));
+
+            // Hidden: slight reading increase
+            double hdStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModHidden() });
+            Assert.That(hdStars, Is.GreaterThan(4.1).And.LessThan(4.2));
+
+            // DoubleTime: scaled by SR physics
+            double dtStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModDoubleTime() });
+            Assert.That(dtStars, Is.GreaterThan(5.2).And.LessThan(6.2));
+
+            // HalfTime: reduced by SR physics
+            double htStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModHalfTime() });
+            Assert.That(htStars, Is.GreaterThan(2.9).And.LessThan(3.5));
+
+            // Combined DT + HR: higher than DT alone
+            double dtHrStars = BeatmapDifficultyCache.ApproximateStarRating(bInfo, null, new Mod[] { new OsuModDoubleTime(), new OsuModHardRock() });
+            Assert.That(dtHrStars, Is.GreaterThan(dtStars));
+
+            // 0 star map edge case
+            var zeroInfo = new BeatmapInfo { StarRating = 0.0 };
+            Assert.That(BeatmapDifficultyCache.ApproximateStarRating(zeroInfo, null, new Mod[] { new OsuModDoubleTime() }), Is.EqualTo(0.0));
+        }
+
         private partial class TestBeatmapDifficultyCache : BeatmapDifficultyCache
         {
             public Func<DifficultyCacheLookup, StarDifficulty> ComputeDifficulty { get; set; }
