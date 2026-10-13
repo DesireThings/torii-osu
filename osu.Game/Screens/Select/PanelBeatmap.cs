@@ -193,7 +193,7 @@ namespace osu.Game.Screens.Select
                                     AutoSizeAxes = Axes.Both,
                                     Children = new Drawable[]
                                     {
-                                        starRatingDisplay = new StarRatingDisplay(default, StarRatingDisplaySize.Small, animated: true)
+                                        starRatingDisplay = new StarRatingDisplay(default, StarRatingDisplaySize.Small, animated: false)
                                         {
                                             Origin = Anchor.CentreLeft,
                                             Anchor = Anchor.CentreLeft,
@@ -220,6 +220,25 @@ namespace osu.Game.Screens.Select
 
             ruleset.BindValueChanged(_ => updateKeyCount());
             mods.BindValueChanged(_ => updateKeyCount(), true);
+
+            Selected.BindValueChanged(s =>
+            {
+                if (s.NewValue && !PotatoMode.Active)
+                    bindLiveDifficulty();
+            }, true);
+        }
+
+        private void bindLiveDifficulty()
+        {
+            if (starDifficultyCancellationSource == null || starDifficultyCancellationSource.IsCancellationRequested)
+                starDifficultyCancellationSource = new CancellationTokenSource();
+
+            starDifficultyBindable = difficultyCache.GetBindableDifficulty(beatmap, starDifficultyCancellationSource.Token, SongSelect.DIFFICULTY_CALCULATION_DEBOUNCE);
+            starDifficultyBindable.BindValueChanged(diff =>
+            {
+                starRatingDisplay.Current.Value = diff.NewValue;
+                starCounter.Current = (float)diff.NewValue.Stars;
+            });
         }
 
         protected override void PrepareForUse()
@@ -274,12 +293,13 @@ namespace osu.Game.Screens.Select
                 return;
             }
 
-            starDifficultyBindable = difficultyCache.GetBindableDifficulty(beatmap, starDifficultyCancellationSource.Token, SongSelect.DIFFICULTY_CALCULATION_DEBOUNCE);
-            starDifficultyBindable.BindValueChanged(starDifficulty =>
-            {
-                starRatingDisplay.Current.Value = starDifficulty.NewValue;
-                starCounter.Current = (float)starDifficulty.NewValue.Stars;
-            }, true);
+            double effectiveStars = difficultyCache.GetEffectiveStarRating(beatmap, ruleset.Value, mods.Value);
+            var effectiveDifficulty = new StarDifficulty(effectiveStars, 0);
+            starRatingDisplay.Current.Value = effectiveDifficulty;
+            starCounter.Current = (float)effectiveStars;
+
+            if (Selected.Value && !PotatoMode.Active)
+                bindLiveDifficulty();
         }
 
         protected override void Update()

@@ -124,6 +124,13 @@ namespace osu.Game.Beatmaps
         }
 
         /// <summary>
+        /// Invoked when a difficulty calculation completes and updates a beatmap's cached <see cref="StarDifficulty"/>.
+        /// </summary>
+        public event Action<IBeatmapInfo, StarDifficulty>? DifficultyUpdated;
+
+
+
+        /// <summary>
         /// Retrieves a bindable containing the star difficulty of a <see cref="BeatmapInfo"/> that follows the currently-selected ruleset and mods.
         /// </summary>
         /// <param name="beatmapInfo">The <see cref="BeatmapInfo"/> to get the difficulty of.</param>
@@ -132,10 +139,14 @@ namespace osu.Game.Beatmaps
         /// <returns>A bindable that is updated to contain the star difficulty when it becomes available. May be an approximation while in an initial calculating state.</returns>
         public IBindable<StarDifficulty> GetBindableDifficulty(IBeatmapInfo beatmapInfo, CancellationToken cancellationToken = default, int computationDelay = 0)
         {
+            double initialStars = beatmapInfo is BeatmapInfo localInfo
+                ? GetEffectiveStarRating(localInfo, currentRuleset.Value, currentMods.Value)
+                : beatmapInfo.StarRating;
+
             var bindable = new BindableStarDifficulty(beatmapInfo, cancellationToken)
             {
-                // Start with an approximate known value instead of zero.
-                Value = new StarDifficulty(beatmapInfo.StarRating, 0)
+                // Start with an approximate or cached known value instead of raw base nomod stars.
+                Value = new StarDifficulty(initialStars, 0)
             };
 
             lock (bindableUpdateLock)
@@ -188,6 +199,24 @@ namespace osu.Game.Beatmaps
         /// </summary>
         /// <param name="beatmapInfo">The beatmap to check.</param>
         /// <param name="rulesetInfo">The ruleset to check with.</param>
+        /// <param name="orderedMods">Pre-ordered and cloned mods array.</param>
+        /// <returns>The cached <see cref="StarDifficulty"/> if available; otherwise <c>null</c>.</returns>
+        public StarDifficulty? GetExistingDifficulty(IBeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo, Mod[] orderedMods)
+        {
+            rulesetInfo ??= beatmapInfo.Ruleset;
+
+            if (beatmapInfo is not BeatmapInfo localBeatmapInfo || rulesetInfo is not RulesetInfo localRulesetInfo)
+                return null;
+
+            var lookup = DifficultyCacheLookup.CreateWithPreorderedMods(localBeatmapInfo, localRulesetInfo, orderedMods);
+            return CheckExists(lookup, out var existing) ? existing : null;
+        }
+
+        /// <summary>
+        /// Retrieves the currently cached difficulty if available without performing an asynchronous computation.
+        /// </summary>
+        /// <param name="beatmapInfo">The beatmap to check.</param>
+        /// <param name="rulesetInfo">The ruleset to check with.</param>
         /// <param name="mods">The mods to check with.</param>
         /// <returns>The cached <see cref="StarDifficulty"/> if available; otherwise <c>null</c>.</returns>
         public StarDifficulty? GetExistingDifficulty(IBeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
@@ -208,17 +237,21 @@ namespace osu.Game.Beatmaps
         /// <param name="beatmapInfo">The beatmap.</param>
         /// <param name="rulesetInfo">The ruleset.</param>
         /// <param name="mods">The mods.</param>
+        /// <param name="orderedMods">Optional pre-ordered and cloned mods array to avoid per-item allocations.</param>
         /// <returns>The effective star rating.</returns>
-        public double GetEffectiveStarRating(BeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
+        public double GetEffectiveStarRating(BeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null, Mod[]? orderedMods = null)
         {
             if (mods == null || !ModUtils.FlattenMods(mods).Any(ModAffectsDifficulty))
                 return beatmapInfo.StarRating;
 
-            var existing = GetExistingDifficulty(beatmapInfo, rulesetInfo, mods);
+            var existing = orderedMods != null
+                ? GetExistingDifficulty(beatmapInfo, rulesetInfo, orderedMods)
+                : GetExistingDifficulty(beatmapInfo, rulesetInfo, mods);
+
             if (existing != null)
                 return existing.Value.Stars;
 
-            return ApproximateStarRating(beatmapInfo, rulesetInfo, mods);
+            return ApproximateStarRating(beatmapInfo, rulesetInfo, orderedMods ?? mods);
         }
 
         /// <summary>
@@ -300,99 +333,79 @@ namespace osu.Game.Beatmaps
                 case "osu":
                 default:
                     var diff = beatmapInfo.Difficulty;
-                    double bpm = beatmapInfo.BPM;
-                    double ar = diff?.ApproachRate ?? 9f;
                     double cs = diff?.CircleSize ?? 4f;
-                    double od = diff?.OverallDifficulty ?? 8f;
-                    int totalObjects = (beatmapInfo as BeatmapInfo)?.TotalObjectCount ?? -1;
-                    double length = (beatmapInfo as BeatmapInfo)?.Length ?? 0;
 
                     // Clock rate scaling
                     if (Math.Abs(rate - 1.0) > 0.001)
                     {
                         if (rate > 1.0)
                         {
-                            // Base exponent scaling with base star rating
-                            double rateExp = 0.35 + 0.62 * (1.0 - Math.Exp(-0.35 * Math.Max(0, baseStars - 1.2)));
-
-                            // Speed stream bonus scaling when effective BPM > 200
-                            double effectiveBpm = bpm * rate;
-                            if (effectiveBpm > 200)
-                                rateExp += Math.Min(0.12, (effectiveBpm - 200) / 120.0 * 0.08);
-
-                            // Reading preempt strain when effective preempt < 500ms
-                            double preempt = IBeatmapDifficultyInfo.DifficultyRange(ar, 1800, 1200, 450) / rate;
-                            if (preempt < 500)
-                                rateExp += Math.Min(0.08, (500 - preempt) / 200.0 * 0.06);
+                            // In Torii pp-dev, star rating is driven by the norm of Aim, Speed, and Reading skills.
+                            // The effective clock rate scaling exponent is strictly monotonic with base star rating,
+                            // scaling from ~0.45-0.54 at 0-1.5★ up to ~0.89 at 6.6★ and ~0.94 at 8★+.
+                            double rateExp = baseStars <= 1.5
+                                ? 0.45 + 0.12 * Math.Max(0, 1.5 - baseStars) / 1.5
+                                : 0.45 + 0.52 * (1.0 - Math.Exp(-0.28 * (baseStars - 1.5)));
 
                             multiplier *= Math.Pow(rate, rateExp);
                         }
                         else
                         {
                             // HT scaling (rate < 1.0): drops faster for high star maps due to collapsing speed/reading strains
-                            double rateExp = 0.65 + 0.55 * Math.Clamp((baseStars - 1.5) / 7.0, 0.0, 1.0);
+                            double rateExp = 0.58 + 0.35 * Math.Clamp((baseStars - 1.5) / 7.0, 0.0, 1.0);
                             multiplier *= Math.Pow(rate, rateExp);
                         }
                     }
 
-                    // Mod multipliers
+                    // Additional mod multipliers
                     foreach (var mod in flattenedMods)
                     {
                         switch (mod)
                         {
                             case ModHardRock:
                             {
-                                double hrFactor = 1.05 + 0.015 * Math.Min(8.0, baseStars) + 0.02 * Math.Max(0, cs * 1.3 - 5.0);
+                                double hrFactor = 1.05 + 0.008 * Math.Min(8.0, baseStars) + 0.01 * Math.Max(0, cs - 5.0);
                                 multiplier *= hrFactor;
                                 break;
                             }
 
                             case ModEasy:
                             {
-                                double ezFactor = 0.83;
-                                // In the reading rework (pp-dev), dense maps with halved AR cause high reading strain
-                                if (totalObjects > 0 && length > 0)
+                                if (diff != null && diff.ApproachRate >= 7.0f)
                                 {
-                                    double density = totalObjects / Math.Max(1.0, length / 1000.0);
-                                    if (density > 3.5 && ar >= 8.0)
-                                    {
-                                        double readingBoost = Math.Min(0.50, (density - 3.5) * 0.10 + Math.Min(0.30, (totalObjects / 1500.0) * 0.20));
-                                        ezFactor = 0.82 + readingBoost;
-                                    }
+                                    // In Torii pp-dev, EZ halves AR. On higher-AR and higher-star maps, dense overlapping objects
+                                    // produce heavy reading strain (raising star rating), whereas low-AR/starter maps see a difficulty reduction.
+                                    double ar = diff.ApproachRate;
+                                    double ezFactor = 0.85 + 0.03 * Math.Clamp(baseStars - 2.0, 0.0, 5.0) + 0.025 * (ar - 7.0);
+                                    multiplier *= ezFactor;
                                 }
-                                multiplier *= ezFactor;
+                                else
+                                {
+                                    multiplier *= 0.85;
+                                }
+                                break;
+                            }
+
+                            case ModDifficultyAdjust da:
+                            {
+                                if (diff != null)
+                                {
+                                    if (da.SettingsMap.TryGetValue("circle_size", out var csSetting) && csSetting is IBindable<float?> csBindable && csBindable.Value is float csVal)
+                                        multiplier *= Math.Pow(1.05, csVal - diff.CircleSize);
+                                    if (da.SettingsMap.TryGetValue("approach_rate", out var arSetting) && arSetting is IBindable<float?> arBindable && arBindable.Value is float arVal)
+                                        multiplier *= Math.Pow(1.02, arVal - diff.ApproachRate);
+                                }
                                 break;
                             }
 
                             case ModFlashlight:
                             {
-                                double flFactor = 1.05 + 0.25 * Math.Clamp(totalObjects > 0 ? totalObjects / 1200.0 : 0.5, 0.0, 1.0);
-                                multiplier *= flFactor;
+                                multiplier *= 1.15;
                                 break;
                             }
 
                             case ModHidden:
                                 multiplier *= 1.035;
-                                break;
-
-                            case ModDifficultyAdjust da:
-                                if (da.OverallDifficulty.Value is float odVal)
-                                {
-                                    float delta = odVal - (float)od;
-                                    multiplier *= Math.Pow(1.03, delta);
-                                }
-
-                                if (da.SettingsMap.TryGetValue("circle_size", out var csSetting) && csSetting is IBindable<float?> csBindable && csBindable.Value is float csVal)
-                                {
-                                    float delta = csVal - (float)cs;
-                                    multiplier *= Math.Pow(1.07, delta);
-                                }
-
-                                if (da.SettingsMap.TryGetValue("approach_rate", out var arSetting) && arSetting is IBindable<float?> arBindable && arBindable.Value is float arVal)
-                                {
-                                    float delta = arVal - (float)ar;
-                                    multiplier *= Math.Pow(1.025, delta);
-                                }
                                 break;
                         }
                     }
@@ -434,6 +447,12 @@ namespace osu.Game.Beatmaps
 
                 foreach (var b in trackedBindables)
                 {
+                    if (b.BeatmapInfo is BeatmapInfo localInfo)
+                    {
+                        double effective = GetEffectiveStarRating(localInfo, currentRuleset.Value, currentMods.Value);
+                        b.Value = new StarDifficulty(effective, b.Value.MaxCombo);
+                    }
+
                     var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(trackedUpdateCancellationSource.Token, b.CancellationToken);
                     linkedCancellationSources.Add(linkedSource);
 
@@ -492,7 +511,15 @@ namespace osu.Game.Beatmaps
                                 StarDifficulty? starDifficulty = task.GetResultSafely();
 
                                 if (starDifficulty != null)
+                                {
+                                    double oldStars = bindable.Value.Stars;
                                     bindable.Value = starDifficulty.Value;
+
+                                    // Only fire DifficultyUpdated if the star rating actually changed noticeably (> 0.01★).
+                                    // This prevents firing on cache hits and eliminates infinite carousel re-filter loops.
+                                    if (Math.Abs(oldStars - starDifficulty.Value.Stars) > 0.01)
+                                        DifficultyUpdated?.Invoke(bindable.BeatmapInfo, starDifficulty.Value);
+                                }
                             }
 
                             // Once the linked cancellation token source is of no remaining use to anybody, clean it up.
@@ -593,6 +620,18 @@ namespace osu.Game.Beatmaps
             public readonly BeatmapInfo BeatmapInfo;
             public readonly RulesetInfo Ruleset;
             public readonly Mod[] OrderedMods;
+
+            public static DifficultyCacheLookup CreateWithPreorderedMods(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, Mod[] orderedMods)
+            {
+                return new DifficultyCacheLookup(beatmapInfo, ruleset, orderedMods, isPreordered: true);
+            }
+
+            private DifficultyCacheLookup(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, Mod[] orderedMods, bool isPreordered)
+            {
+                BeatmapInfo = beatmapInfo;
+                Ruleset = ruleset ?? BeatmapInfo.Ruleset;
+                OrderedMods = orderedMods;
+            }
 
             public DifficultyCacheLookup(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, IEnumerable<Mod>? mods)
             {
