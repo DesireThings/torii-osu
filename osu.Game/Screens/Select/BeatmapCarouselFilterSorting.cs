@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using osu.Game.Beatmaps;
 using osu.Game.Graphics.Carousel;
+using osu.Game.Rulesets.Mods;
 using osu.Game.Screens.Select.Filter;
 using osu.Game.Utils;
 
@@ -35,21 +36,137 @@ namespace osu.Game.Screens.Select
             BeatmapItemsCount = items.Count();
 
             var starRatingCache = new Dictionary<BeatmapInfo, double>();
+            var setMaxStarsCache = new Dictionary<BeatmapSetInfo, double>();
+            var setMaxBaseStarsCache = new Dictionary<BeatmapSetInfo, double>();
+            var setMaxBpmCache = new Dictionary<BeatmapSetInfo, double>();
+
+            Mod[]? orderedMods = criteria.Mods != null
+                ? criteria.Mods.OrderBy(m => m.Acronym).Select(mod => mod.DeepClone()).ToArray()
+                : null;
 
             double getStarRating(BeatmapInfo b)
             {
                 if (!starRatingCache.TryGetValue(b, out double sr))
                 {
                     sr = DifficultyCache != null
-                        ? DifficultyCache.GetEffectiveStarRating(b, criteria.Ruleset, criteria.Mods)
+                        ? DifficultyCache.GetEffectiveStarRating(b, criteria.Ruleset, criteria.Mods, orderedMods)
                         : (criteria.Mods != null
-                            ? BeatmapDifficultyCache.ApproximateStarRating(b, criteria.Ruleset, criteria.Mods)
+                            ? BeatmapDifficultyCache.ApproximateStarRating(b, criteria.Ruleset, orderedMods ?? (IEnumerable<Mod>)criteria.Mods)
                             : b.StarRating);
 
                     starRatingCache[b] = sr;
                 }
 
                 return sr;
+            }
+
+            double getSetMaxStars(BeatmapSetInfo set)
+            {
+                if (!setMaxStarsCache.TryGetValue(set, out double max))
+                {
+                    max = double.MinValue;
+                    bool any = false;
+
+                    foreach (var b in set.Beatmaps)
+                    {
+                        if (!b.Hidden)
+                        {
+                            double s = getStarRating(b);
+                            if (s > max)
+                                max = s;
+                            any = true;
+                        }
+                    }
+
+                    setMaxStarsCache[set] = any ? max : 0;
+                }
+
+                return setMaxStarsCache[set];
+            }
+
+            double getSetMaxBaseStars(BeatmapSetInfo set)
+            {
+                if (!setMaxBaseStarsCache.TryGetValue(set, out double max))
+                {
+                    max = double.MinValue;
+                    bool any = false;
+
+                    foreach (var b in set.Beatmaps)
+                    {
+                        if (!b.Hidden)
+                        {
+                            if (b.StarRating > max)
+                                max = b.StarRating;
+                            any = true;
+                        }
+                    }
+
+                    setMaxBaseStarsCache[set] = any ? max : 0;
+                }
+
+                return setMaxBaseStarsCache[set];
+            }
+
+            double getSetMaxBpm(BeatmapSetInfo set)
+            {
+                if (!setMaxBpmCache.TryGetValue(set, out double max))
+                {
+                    max = double.MinValue;
+                    bool any = false;
+
+                    foreach (var b in set.Beatmaps)
+                    {
+                        if (!b.Hidden)
+                        {
+                            if (b.BPM > max)
+                                max = b.BPM;
+                            any = true;
+                        }
+                    }
+
+                    setMaxBpmCache[set] = any ? max : 0;
+                }
+
+                return setMaxBpmCache[set];
+            }
+
+            if (!groupedSets && criteria.Sort == SortMode.Difficulty)
+            {
+                var itemList = items as IList<CarouselItem> ?? items.ToList();
+                var array = new (CarouselItem item, BeatmapInfo beatmap, double sr)[itemList.Count];
+
+                for (int i = 0; i < itemList.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var item = itemList[i];
+                    var b = (BeatmapInfo)item.Model;
+                    array[i] = (item, b, getStarRating(b));
+                }
+
+                Array.Sort(array, (a, b) =>
+                {
+                    int comparison = a.sr.CompareTo(b.sr);
+
+                    if (comparison == 0)
+                        comparison = a.beatmap.StarRating.CompareTo(b.beatmap.StarRating);
+
+                    if (comparison == 0)
+                        comparison = OrdinalSortByCaseStringComparer.DEFAULT.Compare(a.beatmap.BeatmapSet!.Metadata.Title, b.beatmap.BeatmapSet!.Metadata.Title);
+
+                    if (comparison == 0)
+                        comparison = b.beatmap.BeatmapSet!.DateAdded.CompareTo(a.beatmap.BeatmapSet!.DateAdded);
+
+                    if (comparison == 0)
+                        comparison = b.beatmap.BeatmapSet!.ID.CompareTo(a.beatmap.BeatmapSet!.ID);
+
+                    return comparison;
+                });
+
+                var result = new List<CarouselItem>(array.Length);
+                for (int i = 0; i < array.Length; i++)
+                    result.Add(array[i].item);
+
+                return result;
             }
 
             return items.Order(Comparer<CarouselItem>.Create((a, b) =>
@@ -63,14 +180,18 @@ namespace osu.Game.Screens.Select
                         return compareDifficulty(ab, bb, criteria.Sort, getStarRating);
 
                     // If we're grouping by sets, all fallback sorts need to be aggregates for the set.
-                    return compare(ab, bb, criteria.Sort, aggregate: true, getStarRating);
+                    return compare(ab, bb, criteria.Sort, aggregate: true, getStarRating, getSetMaxStars, getSetMaxBaseStars, getSetMaxBpm);
                 }
 
-                return compare(ab, bb, criteria.Sort, aggregate: false, getStarRating);
+                return compare(ab, bb, criteria.Sort, aggregate: false, getStarRating, getSetMaxStars, getSetMaxBaseStars, getSetMaxBpm);
             })).ToList();
         }, cancellationToken).ConfigureAwait(false);
 
-        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate, Func<BeatmapInfo, double> getStarRating)
+        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate,
+            Func<BeatmapInfo, double> getStarRating,
+            Func<BeatmapSetInfo, double> getSetMaxStars,
+            Func<BeatmapSetInfo, double> getSetMaxBaseStars,
+            Func<BeatmapSetInfo, double> getSetMaxBpm)
         {
             int comparison;
 
@@ -96,15 +217,18 @@ namespace osu.Game.Screens.Select
 
                 case SortMode.Difficulty:
                     if (aggregate)
-                        comparison = compareUsingAggregateMax(a, b, getStarRating);
-                    else
-                        comparison = getStarRating(a).CompareTo(getStarRating(b));
-
-                    if (comparison == 0)
                     {
-                        comparison = aggregate
-                            ? compareUsingAggregateMax(a, b, static bb => bb.StarRating)
-                            : a.StarRating.CompareTo(b.StarRating);
+                        comparison = getSetMaxStars(a.BeatmapSet!).CompareTo(getSetMaxStars(b.BeatmapSet!));
+                        if (comparison == 0)
+                            comparison = getSetMaxBaseStars(a.BeatmapSet!).CompareTo(getSetMaxBaseStars(b.BeatmapSet!));
+                        if (comparison == 0)
+                            comparison = getSetMaxBpm(a.BeatmapSet!).CompareTo(getSetMaxBpm(b.BeatmapSet!));
+                    }
+                    else
+                    {
+                        comparison = getStarRating(a).CompareTo(getStarRating(b));
+                        if (comparison == 0)
+                            comparison = a.StarRating.CompareTo(b.StarRating);
                     }
                     break;
 

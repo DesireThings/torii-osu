@@ -206,7 +206,13 @@ namespace osu.Game.Screens.Select
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
                 case GroupMode.Difficulty:
-                    return getGroupsBy(b => defineGroupByStars(getStarRating(b, criteria)), items);
+                {
+                    var starRatingCache = new Dictionary<BeatmapInfo, double>();
+                    Mod[]? orderedMods = criteria.Mods != null
+                        ? criteria.Mods.OrderBy(m => m.Acronym).Select(mod => mod.DeepClone()).ToArray()
+                        : null;
+                    return getGroupsBy(b => defineGroupByStars(getStarRating(b, criteria, starRatingCache, orderedMods)), items);
+                }
 
                 case GroupMode.Length:
                     return getGroupsBy(b => defineGroupByLength(b.Length), items);
@@ -369,14 +375,21 @@ namespace osu.Game.Screens.Select
             return new GroupDefinition(301, "Over 300 BPM").Yield();
         }
 
-        private double getStarRating(BeatmapInfo beatmap, FilterCriteria criteria)
+        private double getStarRating(BeatmapInfo beatmap, FilterCriteria criteria, Dictionary<BeatmapInfo, double>? starRatingCache = null, Mod[]? orderedMods = null)
         {
-            if (DifficultyCache != null)
-                return DifficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
+            if (starRatingCache != null && starRatingCache.TryGetValue(beatmap, out double cached))
+                return cached;
 
-            return criteria.Mods != null
-                ? BeatmapDifficultyCache.ApproximateStarRating(beatmap, criteria.Ruleset, criteria.Mods)
-                : beatmap.StarRating;
+            double sr = DifficultyCache != null
+                ? DifficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods, orderedMods)
+                : (criteria.Mods != null
+                    ? BeatmapDifficultyCache.ApproximateStarRating(beatmap, criteria.Ruleset, orderedMods ?? (IEnumerable<Mod>)criteria.Mods)
+                    : beatmap.StarRating);
+
+            if (starRatingCache != null)
+                starRatingCache[beatmap] = sr;
+
+            return sr;
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)
