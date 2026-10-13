@@ -47,6 +47,7 @@ namespace osu.Game.Screens.Select
         public required Func<List<BeatmapCollection>> GetCollections { get; init; }
         public required Func<FilterCriteria, IReadOnlyDictionary<Guid, ScoreRank>> GetLocalUserTopRanks { get; init; }
         public required Func<HashSet<int>> GetFavouriteBeatmapSets { get; init; }
+        public BeatmapDifficultyCache? DifficultyCache { get; set; }
 
         public async Task<List<CarouselItem>> Run(IEnumerable<CarouselItem> items, CancellationToken cancellationToken)
         {
@@ -205,7 +206,7 @@ namespace osu.Game.Screens.Select
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
                 case GroupMode.Difficulty:
-                    return getGroupsBy(b => defineGroupByStars(b.StarRating), items);
+                    return getGroupsBy(b => defineGroupByStars(getStarRating(b, criteria)), items);
 
                 case GroupMode.Length:
                     return getGroupsBy(b => defineGroupByLength(b.Length), items);
@@ -366,6 +367,16 @@ namespace osu.Game.Screens.Select
             }
 
             return new GroupDefinition(301, "Over 300 BPM").Yield();
+        }
+
+        private double getStarRating(BeatmapInfo beatmap, FilterCriteria criteria)
+        {
+            if (DifficultyCache != null)
+                return DifficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
+
+            return criteria.Mods != null
+                ? BeatmapDifficultyCache.ApproximateStarRating(beatmap, criteria.Ruleset, criteria.Mods)
+                : beatmap.StarRating;
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)

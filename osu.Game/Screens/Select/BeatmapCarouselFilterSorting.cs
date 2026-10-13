@@ -17,6 +17,8 @@ namespace osu.Game.Screens.Select
     {
         public int BeatmapItemsCount { get; private set; }
 
+        public BeatmapDifficultyCache? DifficultyCache { get; set; }
+
         private readonly Func<FilterCriteria> getCriteria;
 
         public BeatmapCarouselFilterSorting(Func<FilterCriteria> getCriteria)
@@ -32,6 +34,24 @@ namespace osu.Game.Screens.Select
 
             BeatmapItemsCount = items.Count();
 
+            var starRatingCache = new Dictionary<BeatmapInfo, double>();
+
+            double getStarRating(BeatmapInfo b)
+            {
+                if (!starRatingCache.TryGetValue(b, out double sr))
+                {
+                    sr = DifficultyCache != null
+                        ? DifficultyCache.GetEffectiveStarRating(b, criteria.Ruleset, criteria.Mods)
+                        : (criteria.Mods != null
+                            ? BeatmapDifficultyCache.ApproximateStarRating(b, criteria.Ruleset, criteria.Mods)
+                            : b.StarRating);
+
+                    starRatingCache[b] = sr;
+                }
+
+                return sr;
+            }
+
             return items.Order(Comparer<CarouselItem>.Create((a, b) =>
             {
                 var ab = (BeatmapInfo)a.Model;
@@ -40,17 +60,17 @@ namespace osu.Game.Screens.Select
                 if (groupedSets)
                 {
                     if (ab.BeatmapSet!.Equals(bb.BeatmapSet))
-                        return compareDifficulty(ab, bb, criteria.Sort);
+                        return compareDifficulty(ab, bb, criteria.Sort, getStarRating);
 
                     // If we're grouping by sets, all fallback sorts need to be aggregates for the set.
-                    return compare(ab, bb, criteria.Sort, aggregate: true);
+                    return compare(ab, bb, criteria.Sort, aggregate: true, getStarRating);
                 }
 
-                return compare(ab, bb, criteria.Sort, aggregate: false);
+                return compare(ab, bb, criteria.Sort, aggregate: false, getStarRating);
             })).ToList();
         }, cancellationToken).ConfigureAwait(false);
 
-        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate)
+        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate, Func<BeatmapInfo, double> getStarRating)
         {
             int comparison;
 
@@ -75,7 +95,17 @@ namespace osu.Game.Screens.Select
                     break;
 
                 case SortMode.Difficulty:
-                    comparison = a.StarRating.CompareTo(b.StarRating);
+                    if (aggregate)
+                        comparison = compareUsingAggregateMax(a, b, getStarRating);
+                    else
+                        comparison = getStarRating(a).CompareTo(getStarRating(b));
+
+                    if (comparison == 0)
+                    {
+                        comparison = aggregate
+                            ? compareUsingAggregateMax(a, b, static bb => bb.StarRating)
+                            : a.StarRating.CompareTo(b.StarRating);
+                    }
                     break;
 
                 case SortMode.DateAdded:
@@ -131,9 +161,12 @@ namespace osu.Game.Screens.Select
             return comparison;
         }
 
-        private static int compareDifficulty(BeatmapInfo a, BeatmapInfo b, SortMode sort)
+        private static int compareDifficulty(BeatmapInfo a, BeatmapInfo b, SortMode sort, Func<BeatmapInfo, double> getStarRating)
         {
             int comparison = a.Ruleset.CompareTo(b.Ruleset);
+
+            if (comparison == 0)
+                comparison = getStarRating(a).CompareTo(getStarRating(b));
 
             if (comparison == 0)
                 comparison = a.StarRating.CompareTo(b.StarRating);
@@ -153,7 +186,13 @@ namespace osu.Game.Screens.Select
             if (!aAny) return -1;
             if (!bAny) return 1;
 
-            return aMatchedBeatmaps.Max(func).CompareTo(bMatchedBeatmaps.Max(func));
+            int comparison = aMatchedBeatmaps.Max(func).CompareTo(bMatchedBeatmaps.Max(func));
+            if (comparison == 0)
+                comparison = aMatchedBeatmaps.Max(bb => bb.StarRating).CompareTo(bMatchedBeatmaps.Max(bb => bb.StarRating));
+            if (comparison == 0)
+                comparison = aMatchedBeatmaps.Max(bb => bb.BPM).CompareTo(bMatchedBeatmaps.Max(bb => bb.BPM));
+
+            return comparison;
         }
     }
 }

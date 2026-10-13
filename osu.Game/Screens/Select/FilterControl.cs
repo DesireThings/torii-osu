@@ -27,6 +27,7 @@ using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Screens.Select.Filter;
+using osu.Game.Utils;
 using osuTK;
 using osuTK.Input;
 
@@ -82,6 +83,8 @@ namespace osu.Game.Screens.Select
         private FilterCriteria currentCriteria = null!;
 
         private IDisposable? collectionsSubscription;
+        private ModSettingChangeTracker? modSettingChangeTracker;
+        private ScheduledDelegate? debouncedModSettingsChange;
 
         [BackgroundDependencyLoader]
         private void load(IAPIProvider api)
@@ -230,18 +233,41 @@ namespace osu.Game.Screens.Select
             ruleset.BindValueChanged(_ => updateCriteria());
             mods.BindValueChanged(m =>
             {
-                // The following is a note carried from old song select and may not be a valid reason anymore:
-                // // Mods are updated once by the mod select overlay when song select is entered,
-                // // regardless of if there are any mods or any changes have taken place.
-                // // Updating the criteria here so early triggers a re-ordering of panels on song select, via... some mechanism.
-                // // Todo: Investigate/fix and potentially remove this.
-                // TODO: this might be simply removable with the new song select & carousel code.
-                if (m.NewValue.SequenceEqual(m.OldValue))
+                modSettingChangeTracker?.Dispose();
+                debouncedModSettingsChange?.Cancel();
+
+                if (m.NewValue != null)
+                {
+                    modSettingChangeTracker = new ModSettingChangeTracker(m.NewValue);
+                    modSettingChangeTracker.SettingChanged += mod =>
+                    {
+                        if (BeatmapDifficultyCache.ModAffectsDifficulty(mod)
+                            || currentCriteria.RulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true)
+                        {
+                            debouncedModSettingsChange?.Cancel();
+                            debouncedModSettingsChange = Scheduler.AddDelayed(() => updateCriteria(), 100);
+                        }
+                    };
+                }
+
+                if (m.OldValue != null && m.NewValue != null && m.OldValue.SequenceEqual(m.NewValue))
                     return;
 
                 var rulesetCriteria = currentCriteria.RulesetCriteria;
-                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true)
+                var changedMods = (m.OldValue ?? Enumerable.Empty<Mod>())
+                    .Except(m.NewValue ?? Enumerable.Empty<Mod>())
+                    .Concat((m.NewValue ?? Enumerable.Empty<Mod>()).Except(m.OldValue ?? Enumerable.Empty<Mod>()));
+
+                bool affectsDifficulty = ModUtils.FlattenMods(changedMods).Any(BeatmapDifficultyCache.ModAffectsDifficulty);
+
+                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true
+                    || (affectsDifficulty && (currentCriteria.Sort == SortMode.Difficulty
+                                              || currentCriteria.Group == GroupMode.Difficulty
+                                              || currentCriteria.StarDifficulty.HasFilter
+                                              || currentCriteria.UserStarDifficulty.HasFilter)))
+                {
                     updateCriteria();
+                }
             });
 
             searchTextBox.Current.BindValueChanged(_ => updateCriteria());
@@ -288,6 +314,8 @@ namespace osu.Game.Screens.Select
         {
             base.Dispose(isDisposing);
             collectionsSubscription?.Dispose();
+            modSettingChangeTracker?.Dispose();
+            debouncedModSettingsChange?.Cancel();
         }
 
         /// <summary>
@@ -305,7 +333,7 @@ namespace osu.Game.Screens.Select
                 Group = groupDropdown.Current.Value?.Value ?? GroupMode.None,
                 AllowConvertedBeatmaps = showConvertedBeatmapsButton.Active.Value,
                 Ruleset = ruleset.Value,
-                Mods = mods.Value,
+                Mods = mods.Value?.Select(m => m.DeepClone()).ToList(),
                 Collection = collectionDropdown.Current.Value?.Collection,
                 LocalUserId = isValidUser ? localUser.Value.Id : null,
                 LocalUserUsername = isValidUser ? localUser.Value.Username : null,

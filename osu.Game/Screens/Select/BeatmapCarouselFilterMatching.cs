@@ -18,6 +18,8 @@ namespace osu.Game.Screens.Select
 
         public int BeatmapItemsCount { get; private set; }
 
+        public BeatmapDifficultyCache? DifficultyCache { get; set; }
+
         public BeatmapCarouselFilterMatching(Func<FilterCriteria> getCriteria)
         {
             this.getCriteria = getCriteria;
@@ -41,7 +43,7 @@ namespace osu.Game.Screens.Select
                 if (beatmap.Hidden)
                     continue;
 
-                if (!CheckCriteriaMatch(beatmap, criteria))
+                if (!CheckCriteriaMatch(beatmap, criteria, DifficultyCache))
                     continue;
 
                 countMatching++;
@@ -51,7 +53,10 @@ namespace osu.Game.Screens.Select
             BeatmapItemsCount = countMatching;
         }
 
-        public static bool CheckCriteriaMatch(BeatmapInfo beatmap, FilterCriteria criteria)
+        public static bool CheckCriteriaMatch(BeatmapInfo beatmap, FilterCriteria criteria) =>
+            CheckCriteriaMatch(beatmap, criteria, null);
+
+        public static bool CheckCriteriaMatch(BeatmapInfo beatmap, FilterCriteria criteria, BeatmapDifficultyCache? difficultyCache)
         {
             bool match = criteria.Ruleset == null || beatmap.AllowGameplayWithRuleset(criteria.Ruleset!, criteria.AllowConvertedBeatmaps);
 
@@ -78,7 +83,13 @@ namespace osu.Game.Screens.Select
 
             if (!match) return false;
 
-            match &= !criteria.StarDifficulty.HasFilter || criteria.StarDifficulty.IsInRange(beatmap.StarRating.FloorToDecimalDigits(2));
+            double starRating = difficultyCache != null
+                ? difficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods)
+                : (criteria.Mods != null
+                    ? BeatmapDifficultyCache.ApproximateStarRating(beatmap, criteria.Ruleset, criteria.Mods)
+                    : beatmap.StarRating);
+
+            match &= !criteria.StarDifficulty.HasFilter || criteria.StarDifficulty.IsInRange(starRating.FloorToDecimalDigits(2));
             match &= !criteria.ApproachRate.HasFilter || criteria.ApproachRate.IsInRange(beatmap.Difficulty.ApproachRate);
             match &= !criteria.DrainRate.HasFilter || criteria.DrainRate.IsInRange(beatmap.Difficulty.DrainRate);
             match &= !criteria.CircleSize.HasFilter || criteria.CircleSize.IsInRange(beatmap.Difficulty.CircleSize);
@@ -140,7 +151,7 @@ namespace osu.Game.Screens.Select
                 }
             }
 
-            match &= !criteria.UserStarDifficulty.HasFilter || criteria.UserStarDifficulty.IsInRange(beatmap.StarRating);
+            match &= !criteria.UserStarDifficulty.HasFilter || criteria.UserStarDifficulty.IsInRange(starRating);
 
             if (!match) return false;
 
