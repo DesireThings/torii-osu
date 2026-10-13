@@ -11,6 +11,8 @@ using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Beatmaps;
 using osu.Game.Collections;
 using osu.Game.Graphics.Carousel;
+using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Scoring;
 using osu.Game.Screens.Select;
 using osu.Game.Screens.Select.Filter;
@@ -286,6 +288,47 @@ namespace osu.Game.Tests.Visual.SongSelect
             assertTotal(results, total);
         }
 
+        [Test]
+        public async Task TestGroupingByDifficultyWithModAdjustment()
+        {
+            int total = 0;
+
+            var beatmapSets = new List<BeatmapSetInfo>();
+            // 3.8 base stars: nomod is "3 Stars", but with DT (approx 3.8 * 1.5^0.75 ≈ 5.15) becomes "5 Stars".
+            addBeatmapSet(applyStars(3.8), beatmapSets, out var beatmapDtTarget);
+            // 1.2 base stars: nomod is "1 Star", but with DT (approx 1.2 * 1.5^0.75 ≈ 1.63) stays "1 Star".
+            addBeatmapSet(applyStars(1.2), beatmapSets, out var beatmapLow);
+            // 12.0 base stars: nomod is "12 Stars", but with DT (approx 12.0 * 1.5^0.75 ≈ 16.26) becomes "Over 15 Stars".
+            addBeatmapSet(applyStars(12.0), beatmapSets, out var beatmapHigh);
+
+            var results = await runGrouping(GroupMode.Difficulty, beatmapSets, new[] { new OsuModDoubleTime() });
+            assertGroup(results, 0, "1 Star", beatmapLow.Beatmaps, ref total);
+            assertGroup(results, 1, "5 Stars", beatmapDtTarget.Beatmaps, ref total);
+            assertGroup(results, 2, "Over 15 Stars", beatmapHigh.Beatmaps, ref total);
+            assertTotal(results, total);
+        }
+
+        [Test]
+        public async Task TestGroupingByDifficultyWithReductionMod()
+        {
+            int total = 0;
+
+            var beatmapSets = new List<BeatmapSetInfo>();
+            // 1.1 base stars: with HT (approx 1.1 * 0.75^0.75 ≈ 0.89) becomes "Below 1 Star".
+            addBeatmapSet(applyStars(1.1), beatmapSets, out var beatmapReducedBelow1);
+            // 4.2 base stars: with EZ (approx 4.2 * 0.88 ≈ 3.70) becomes "3 Stars".
+            addBeatmapSet(applyStars(4.2), beatmapSets, out var beatmapReducedTo3);
+
+            var resultsHt = await runGrouping(GroupMode.Difficulty, new List<BeatmapSetInfo> { beatmapReducedBelow1 }, new[] { new OsuModHalfTime() });
+            assertGroup(resultsHt, 0, "Below 1 Star", beatmapReducedBelow1.Beatmaps, ref total);
+            assertTotal(resultsHt, total);
+
+            total = 0;
+            var resultsEz = await runGrouping(GroupMode.Difficulty, new List<BeatmapSetInfo> { beatmapReducedTo3 }, new[] { new OsuModEasy() });
+            assertGroup(resultsEz, 0, "3 Stars", beatmapReducedTo3.Beatmaps, ref total);
+            assertTotal(resultsEz, total);
+        }
+
         private Action<BeatmapSetInfo> applyStars(double stars)
         {
             return s => s.Beatmaps.ForEach(b => b.StarRating = stars);
@@ -397,14 +440,15 @@ namespace osu.Game.Tests.Visual.SongSelect
 
         private HashSet<int> favouriteBeatmapSets = [];
 
-        private async Task<List<CarouselItem>> runGrouping(GroupMode group, List<BeatmapSetInfo> beatmapSets)
+        private async Task<List<CarouselItem>> runGrouping(GroupMode group, List<BeatmapSetInfo> beatmapSets, IReadOnlyList<Mod>? mods = null, BeatmapDifficultyCache? difficultyCache = null)
         {
             var groupingFilter = new BeatmapCarouselFilterGrouping
             {
-                GetCriteria = () => new FilterCriteria { Group = group },
+                GetCriteria = () => new FilterCriteria { Group = group, Mods = mods },
                 GetCollections = () => new List<BeatmapCollection>(),
                 GetLocalUserTopRanks = _ => new Dictionary<Guid, ScoreRank>(),
                 GetFavouriteBeatmapSets = () => favouriteBeatmapSets,
+                DifficultyCache = difficultyCache,
             };
 
             return await groupingFilter.Run(beatmapSets.SelectMany(s => s.Beatmaps.Select(b => new CarouselItem(b))).ToList(), CancellationToken.None);
