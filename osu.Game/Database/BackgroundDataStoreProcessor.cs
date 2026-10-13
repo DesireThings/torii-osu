@@ -311,7 +311,10 @@ namespace osu.Game.Database
                     string? header = reader.ReadLine();
 
                     if (string.IsNullOrEmpty(header))
+                    {
+                        deleteRecalcJournal();
                         return;
+                    }
 
                     foreach (var kv in parseVersionMap(header))
                         journalTargets[kv.Key] = kv.Value;
@@ -323,6 +326,13 @@ namespace osu.Game.Database
                         if (Guid.TryParse(line, out var id))
                             journalRemaining.Add(id);
                     }
+                }
+
+                if (journalRemaining.Count == 0)
+                {
+                    deleteRecalcJournal();
+                    journalTargets.Clear();
+                    return;
                 }
 
                 Logger.Log($"[difficulty] journal encontrado: {journalRemaining.Count} mapas pendientes de una corrida anterior ({string.Join(", ", journalTargets.Keys)})");
