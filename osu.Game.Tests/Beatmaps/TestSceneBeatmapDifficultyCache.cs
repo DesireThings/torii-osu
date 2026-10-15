@@ -230,6 +230,27 @@ namespace osu.Game.Tests.Beatmaps
             ClassicAssert.AreEqual(expectedBracket, actualBracket);
         }
 
+        [Test]
+        public void TestGetExistingDifficulty()
+        {
+            var testCache = new TestBeatmapDifficultyCache();
+            var bInfo = new BeatmapInfo { ID = Guid.NewGuid(), StarRating = 4.0, Ruleset = new RulesetInfo { OnlineID = 0 } };
+            var mods = new Mod[] { new OsuModDoubleTime() };
+
+            // Not yet populated in cache
+            Assert.That(testCache.GetExistingDifficulty(bInfo, null, mods), Is.Null);
+
+            // Populate cache
+            testCache.ComputeDifficulty = _ => new StarDifficulty(6.0, 0);
+            var computed = testCache.GetDifficultyAsync(bInfo, null, mods).GetResultSafely();
+            Assert.That(computed, Is.Not.Null);
+
+            // Now existing difficulty returns the cached StarDifficulty
+            var existing = testCache.GetExistingDifficulty(bInfo, null, mods);
+            Assert.That(existing, Is.Not.Null);
+            Assert.That(existing.Value.Stars, Is.EqualTo(6.0));
+        }
+
         private partial class TestBeatmapDifficultyCache : BeatmapDifficultyCache
         {
             public Func<DifficultyCacheLookup, StarDifficulty> ComputeDifficulty { get; set; }

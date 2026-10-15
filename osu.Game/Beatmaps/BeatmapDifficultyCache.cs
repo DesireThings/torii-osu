@@ -182,6 +182,24 @@ namespace osu.Game.Beatmaps
             return GetAsync(new DifficultyCacheLookup(localBeatmapInfo, localRulesetInfo, mods), cancellationToken, computationDelay);
         }
 
+        /// <summary>
+        /// Retrieves the currently cached difficulty if available without performing an asynchronous computation.
+        /// </summary>
+        /// <param name="beatmapInfo">The beatmap to check.</param>
+        /// <param name="rulesetInfo">The ruleset to check with.</param>
+        /// <param name="mods">The mods to check with.</param>
+        /// <returns>The cached <see cref="StarDifficulty"/> if available; otherwise <c>null</c>.</returns>
+        public StarDifficulty? GetExistingDifficulty(IBeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
+        {
+            rulesetInfo ??= beatmapInfo.Ruleset;
+
+            if (beatmapInfo is not BeatmapInfo localBeatmapInfo || rulesetInfo is not RulesetInfo localRulesetInfo)
+                return null;
+
+            var lookup = new DifficultyCacheLookup(localBeatmapInfo, localRulesetInfo, mods);
+            return CheckExists(lookup, out var existing) ? existing : null;
+        }
+
         protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken cancellationToken = default)
         {
             return Task.Factory.StartNew(() =>
