@@ -104,8 +104,8 @@ namespace osu.Game.Beatmaps
                         if (rate > 1.0)
                         {
                             // In Torii pp-dev, star rating is driven by the norm of Aim, Speed, and Reading skills.
-                            // The effective clock rate scaling exponent is strictly monotonic with base star rating,
-                            // scaling from ~0.45-0.54 at 0-1.5★ up to ~0.89 at 6.6★ and ~0.94 at 8★+.
+                            // The effective clock rate scaling exponent falls linearly from 0.57 at 0★ to 0.45 at 1.5★,
+                            // then rises with base star rating towards 0.97 (~0.71 at 4★, ~0.85 at 6.6★, ~0.89 at 8★, ~0.94 at 12★).
                             double rateExp = baseStars <= 1.5
                                 ? 0.45 + 0.12 * Math.Max(0, 1.5 - baseStars) / 1.5
                                 : 0.45 + 0.52 * (1.0 - Math.Exp(-0.28 * (baseStars - 1.5)));
