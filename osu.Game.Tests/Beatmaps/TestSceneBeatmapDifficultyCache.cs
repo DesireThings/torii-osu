@@ -16,6 +16,7 @@ using osu.Framework.Extensions;
 using osu.Framework.Testing;
 using osu.Game.Beatmaps;
 using osu.Game.Rulesets;
+using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Osu.Mods;
@@ -335,12 +336,143 @@ namespace osu.Game.Tests.Beatmaps
             Assert.That(sr15, Is.LessThan(sr18));
         }
 
+        [Test]
+        public void TestInitialValueUsesEffectiveStarRating()
+        {
+            BeatmapInfo beatmap = null;
+            double initialStars = 0;
+            double expectedStars = 0;
+
+            AddStep("create beatmap", () => beatmap = createDetachedBeatmap());
+
+            AddStep("get bindable without mods", () => initialStars = difficultyCache.GetBindableDifficulty(beatmap).Value.Stars);
+            AddAssert("initial value is base stars", () => initialStars, () => Is.EqualTo(4.0));
+
+            AddStep("select DT", () => SelectedMods.Value = new[] { new OsuModDoubleTime() });
+            AddStep("get bindable with DT", () =>
+            {
+                expectedStars = difficultyCache.GetEffectiveStarRating(beatmap, Ruleset.Value, SelectedMods.Value);
+                initialStars = difficultyCache.GetBindableDifficulty(beatmap).Value.Stars;
+            });
+            AddAssert("effective stars differ from base stars", () => expectedStars, () => Is.Not.EqualTo(4.0));
+            AddAssert("initial value is effective stars", () => initialStars, () => Is.EqualTo(expectedStars));
+        }
+
+        [Test]
+        public void TestTrackedBindableSeededOnModChange()
+        {
+            BeatmapInfo beatmap = null;
+            IBindable<StarDifficulty> bindable = null;
+            double expectedStars = 0;
+
+            AddStep("create beatmap", () => beatmap = createDetachedBeatmap());
+            AddStep("set computation function", () => difficultyCache.ComputeDifficulty = _ => new StarDifficulty(4.5, 0));
+
+            AddStep("get bindable", () => bindable = difficultyCache.GetBindableDifficulty(beatmap));
+            AddUntilStep("bindable at exact stars", () => bindable.Value.Stars, () => Is.EqualTo(4.5));
+
+            AddStep("hold computations", () => difficultyCache.HoldComputations());
+            AddStep("select DT", () =>
+            {
+                SelectedMods.Value = new[] { new OsuModDoubleTime() };
+                expectedStars = difficultyCache.GetEffectiveStarRating(beatmap, Ruleset.Value, SelectedMods.Value);
+            });
+            AddAssert("effective stars differ from previous stars", () => expectedStars, () => Is.Not.EqualTo(4.5));
+            AddUntilStep("bindable seeded with effective stars", () => bindable.Value.Stars, () => Is.EqualTo(expectedStars));
+
+            AddStep("release computations", () => difficultyCache.ReleaseComputations(new StarDifficulty(7.2, 0)));
+            AddUntilStep("bindable at exact DT stars", () => bindable.Value.Stars, () => Is.EqualTo(7.2));
+        }
+
+        [Test]
+        public void TestCancelledBindableNotSeeded()
+        {
+            BeatmapInfo beatmap = null;
+            CancellationTokenSource cancellationSource = null;
+            IBindable<StarDifficulty> cancelledBindable = null;
+            IBindable<StarDifficulty> liveBindable = null;
+            double expectedStars = 0;
+
+            AddStep("create beatmap", () => beatmap = createDetachedBeatmap());
+            AddStep("set computation function", () => difficultyCache.ComputeDifficulty = _ => new StarDifficulty(4.5, 0));
+
+            AddStep("get bindables", () =>
+            {
+                cancelledBindable = difficultyCache.GetBindableDifficulty(beatmap, (cancellationSource = new CancellationTokenSource()).Token);
+                liveBindable = difficultyCache.GetBindableDifficulty(beatmap);
+            });
+            AddUntilStep("both bindables at exact stars", () => cancelledBindable.Value.Stars == 4.5 && liveBindable.Value.Stars == 4.5);
+
+            AddStep("cancel one bindable", () => cancellationSource.Cancel());
+            AddStep("hold computations", () => difficultyCache.HoldComputations());
+            AddStep("select DT", () =>
+            {
+                SelectedMods.Value = new[] { new OsuModDoubleTime() };
+                expectedStars = difficultyCache.GetEffectiveStarRating(beatmap, Ruleset.Value, SelectedMods.Value);
+            });
+            AddUntilStep("live bindable seeded", () => liveBindable.Value.Stars, () => Is.EqualTo(expectedStars));
+            AddAssert("cancelled bindable unchanged", () => cancelledBindable.Value.Stars, () => Is.EqualTo(4.5));
+
+            AddStep("release computations", () => difficultyCache.ReleaseComputations(new StarDifficulty(7.2, 0)));
+        }
+
+        [Test]
+        public void TestNonDifficultyModChangeKeepsAttributes()
+        {
+            BeatmapInfo beatmap = null;
+            IBindable<StarDifficulty> bindable = null;
+            int requestsBeforeModChange = 0;
+
+            AddStep("create beatmap", () => beatmap = createDetachedBeatmap());
+            AddStep("set computation function", () => difficultyCache.ComputeDifficulty = _ =>
+                new StarDifficulty(new DifficultyAttributes { StarRating = 4.0 }, new PerformanceAttributes { Total = 123 }));
+
+            AddStep("get bindable", () => bindable = difficultyCache.GetBindableDifficulty(beatmap));
+            AddUntilStep("bindable has performance attributes", () => bindable.Value.PerformanceAttributes, () => Is.Not.Null);
+
+            AddStep("hold computations", () =>
+            {
+                difficultyCache.HoldComputations();
+                requestsBeforeModChange = difficultyCache.ComputationRequests;
+            });
+            AddStep("select NF", () => SelectedMods.Value = new[] { new OsuModNoFail() });
+            AddUntilStep("tracked bindables updated", () => difficultyCache.ComputationRequests, () => Is.GreaterThan(requestsBeforeModChange));
+            AddAssert("performance attributes kept", () => bindable.Value.PerformanceAttributes, () => Is.Not.Null);
+
+            AddStep("release computations", () => difficultyCache.ReleaseComputations(new StarDifficulty(4.0, 0)));
+        }
+
+        private static BeatmapInfo createDetachedBeatmap() => new BeatmapInfo { ID = Guid.NewGuid(), StarRating = 4.0, Ruleset = new RulesetInfo { OnlineID = 0 } };
+
         private partial class TestBeatmapDifficultyCache : BeatmapDifficultyCache
         {
             public Func<DifficultyCacheLookup, StarDifficulty> ComputeDifficulty { get; set; }
 
+            public int ComputationRequests => Volatile.Read(ref computationRequests);
+
+            private int computationRequests;
+
+            private TaskCompletionSource<StarDifficulty?> pendingComputation;
+
+            /// <summary>
+            /// Holds all subsequent computations until <see cref="ReleaseComputations"/> is called.
+            /// </summary>
+            public void HoldComputations() => pendingComputation = new TaskCompletionSource<StarDifficulty?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public void ReleaseComputations(StarDifficulty result)
+            {
+                var pending = pendingComputation;
+                pendingComputation = null;
+                pending?.SetResult(result);
+            }
+
             protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken token = default)
             {
+                Interlocked.Increment(ref computationRequests);
+
+                if (pendingComputation != null)
+                    return pendingComputation.Task;
+
                 return Task.FromResult<StarDifficulty?>(ComputeDifficulty?.Invoke(lookup) ?? new StarDifficulty(BASE_STARS, 0));
             }
         }

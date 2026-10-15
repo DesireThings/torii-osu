@@ -134,8 +134,8 @@ namespace osu.Game.Beatmaps
         {
             var bindable = new BindableStarDifficulty(beatmapInfo, cancellationToken)
             {
-                // Start with an approximate known value instead of zero.
-                Value = new StarDifficulty(beatmapInfo.StarRating, 0)
+                // Start with the mod-adjusted star rating (cached exact value or approximation) instead of zero.
+                Value = new StarDifficulty(getEffectiveStarRating(beatmapInfo), 0)
             };
 
             lock (bindableUpdateLock)
@@ -221,6 +221,10 @@ namespace osu.Game.Beatmaps
             return StarRatingApproximator.Approximate(beatmapInfo, rulesetInfo, mods);
         }
 
+        private double getEffectiveStarRating(IBeatmapInfo beatmapInfo) => beatmapInfo is BeatmapInfo localBeatmapInfo
+            ? GetEffectiveStarRating(localBeatmapInfo, currentRuleset.Value, currentMods.Value)
+            : beatmapInfo.StarRating;
+
         protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken cancellationToken = default)
         {
             return Task.Factory.StartNew(() =>
@@ -253,6 +257,16 @@ namespace osu.Game.Beatmaps
 
                 foreach (var b in trackedBindables)
                 {
+                    // Cancelled bindables belong to consumers that have moved on (e.g. pooled carousel panels now showing another beatmap).
+                    if (!b.CancellationToken.IsCancellationRequested)
+                    {
+                        double seed = getEffectiveStarRating(b.BeatmapInfo);
+
+                        // Only seed when the star rating actually changes, so non-difficulty mod changes (e.g. NF) don't drop the attributes.
+                        if (seed != b.Value.Stars)
+                            b.Value = new StarDifficulty(seed, b.Value.MaxCombo);
+                    }
+
                     var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(trackedUpdateCancellationSource.Token, b.CancellationToken);
                     linkedCancellationSources.Add(linkedSource);
 
