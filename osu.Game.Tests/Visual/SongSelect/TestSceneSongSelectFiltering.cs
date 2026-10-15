@@ -290,6 +290,147 @@ namespace osu.Game.Tests.Visual.SongSelect
             assertNewFilterCount(1);
         }
 
+        [TestCase(DifficultyCriterion.Sort)]
+        [TestCase(DifficultyCriterion.Group)]
+        [TestCase(DifficultyCriterion.StarQuery)]
+        [TestCase(DifficultyCriterion.StarRange)]
+        public void TestDifficultyModSettingChangeWithDifficultyCriteria(DifficultyCriterion criterion)
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(criterion);
+            ChangeMods(new OsuModDoubleTime());
+            recordFilterCount();
+
+            changeModSetting("change rate", () => selectedDoubleTime.SpeedChange.Value = 1.8);
+            assertNewFilterCount(1);
+
+            // Rapid changes (e.g. dragging a slider) should only re-filter once.
+            changeModSetting("change rate repeatedly", () =>
+            {
+                selectedDoubleTime.SpeedChange.Value = 1.6;
+                selectedDoubleTime.SpeedChange.Value = 1.7;
+                selectedDoubleTime.SpeedChange.Value = 1.9;
+            });
+            assertNewFilterCount(2);
+        }
+
+        [Test]
+        public void TestDifficultyModSettingChangeWithoutDifficultyCriteria()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            ChangeMods(new OsuModDoubleTime());
+            recordFilterCount();
+
+            changeModSetting("change rate", () => selectedDoubleTime.SpeedChange.Value = 1.8);
+            assertNewFilterCount(0);
+        }
+
+        [Test]
+        public void TestNonDifficultyModSettingChangeWithDifficultyCriteria()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            ChangeMods(new OsuModMirror());
+            recordFilterCount();
+
+            changeModSetting("change reflection", () => SelectedMods.Value.OfType<OsuModMirror>().Single().Reflection.Value = OsuModMirror.MirrorType.Vertical);
+            assertNewFilterCount(0);
+        }
+
+        [Test]
+        public void TestDifficultyModSettingChangeWithModSelectedBeforeEntering()
+        {
+            ImportBeatmapForRuleset(0);
+            SortBy(SortMode.Difficulty);
+            ChangeMods(new OsuModDoubleTime());
+
+            LoadSongSelect();
+            recordFilterCount();
+
+            changeModSetting("change rate", () => selectedDoubleTime.SpeedChange.Value = 1.8);
+            assertNewFilterCount(1);
+        }
+
+        [Test]
+        public void TestSettingChangeOfDeselectedModIgnored()
+        {
+            ModDoubleTime? deselectedDoubleTime = null;
+
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            ChangeMods(new OsuModDoubleTime());
+            AddStep("store selected double time", () => deselectedDoubleTime = selectedDoubleTime);
+            ChangeMods();
+            recordFilterCount();
+
+            changeModSetting("change rate of deselected mod", () => deselectedDoubleTime!.SpeedChange.Value = 1.8);
+            assertNewFilterCount(0);
+        }
+
+        [Test]
+        public void TestCriteriaModsUnaffectedByLaterSettingChanges()
+        {
+            FilterCriteria? storedCriteria = null;
+
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            ChangeMods(new OsuModDoubleTime());
+
+            // Criteria from a setting change are created from the selected mod instance, which later setting changes apply to.
+            changeModSetting("change rate", () => selectedDoubleTime.SpeedChange.Value = 1.8);
+            AddStep("store criteria", () => storedCriteria = lastCriteria);
+
+            changeModSetting("change rate again", () => selectedDoubleTime.SpeedChange.Value = 1.9);
+            AddAssert("stored criteria rate unchanged", () => storedCriteria?.Mods?.OfType<ModRateAdjust>().Single().SpeedChange.Value, () => Is.EqualTo(1.8));
+            AddAssert("latest criteria rate changed", () => lastCriteria?.Mods?.OfType<ModRateAdjust>().Single().SpeedChange.Value, () => Is.EqualTo(1.9));
+        }
+
+        [Test]
+        public void TestPendingSettingChangeRefilterSurvivesNonRefilteringModChange()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            ChangeMods(new OsuModDoubleTime());
+            recordFilterCount();
+
+            changeModSetting("change rate and add non-difficulty mod", () =>
+            {
+                selectedDoubleTime.SpeedChange.Value = 1.8;
+                SelectedMods.Value = new Mod[] { selectedDoubleTime, new OsuModMirror() };
+            });
+            assertNewFilterCount(1);
+        }
+
+        [Test]
+        public void TestPendingSettingChangeRefilterSupersededByRefilteringModChange()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            ChangeMods(new OsuModDoubleTime());
+            recordFilterCount();
+
+            changeModSetting("change rate and add difficulty mod", () =>
+            {
+                selectedDoubleTime.SpeedChange.Value = 1.8;
+                SelectedMods.Value = new Mod[] { selectedDoubleTime, new OsuModHardRock() };
+            });
+            assertNewFilterCount(1);
+        }
+
         [Test]
         public void TestPlaceholderVisibleAfterDeleteAll()
         {
@@ -664,6 +805,23 @@ namespace osu.Game.Tests.Visual.SongSelect
 
         private void assertNewFilterCount(int expected) =>
             AddAssert($"{expected} new filter operations", () => filterOperationsCount - filterCountBaseline, () => Is.EqualTo(expected));
+
+        // The mod select overlay replaces selected mods with its own instances, so settings must be changed on those.
+        private ModDoubleTime selectedDoubleTime => SelectedMods.Value.OfType<ModDoubleTime>().Single();
+
+        private void changeModSetting(string description, Action change)
+        {
+            double changeTime = 0;
+
+            AddStep(description, () =>
+            {
+                change();
+                changeTime = filter.Time.Current;
+            });
+
+            // Allow any debounced re-filter to run.
+            AddUntilStep("wait for debounce period", () => filter.Time.Current - changeTime > 200);
+        }
 
         private void applyDifficultyCriterion(DifficultyCriterion criterion)
         {

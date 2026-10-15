@@ -83,6 +83,8 @@ namespace osu.Game.Screens.Select
         private FilterCriteria currentCriteria = null!;
 
         private IDisposable? collectionsSubscription;
+        private ModSettingChangeTracker? modSettingChangeTracker;
+        private ScheduledDelegate? debouncedModSettingsChange;
 
         [BackgroundDependencyLoader]
         private void load(IAPIProvider api)
@@ -231,6 +233,9 @@ namespace osu.Game.Screens.Select
             ruleset.BindValueChanged(_ => updateCriteria());
             mods.BindValueChanged(m =>
             {
+                // Settings are tracked per mod instance, so tracking must be refreshed even if the new mods are equal by value.
+                trackModSettings(m.NewValue);
+
                 // The following is a note carried from old song select and may not be a valid reason anymore:
                 // // Mods are updated once by the mod select overlay when song select is entered,
                 // // regardless of if there are any mods or any changes have taken place.
@@ -244,15 +249,13 @@ namespace osu.Game.Screens.Select
 
                 // Sorting, grouping and star rating filters use mod-adjusted star ratings,
                 // so ordering, group membership or matches may change when difficulty-altering mods are toggled.
-                bool difficultyCriteriaMayChange = (currentCriteria.Sort == SortMode.Difficulty
-                                                    || currentCriteria.Group == GroupMode.Difficulty
-                                                    || currentCriteria.StarDifficulty.HasFilter
-                                                    || currentCriteria.UserStarDifficulty.HasFilter)
-                                                   && difficultyModsChanged(m.OldValue, m.NewValue);
+                bool difficultyCriteriaMayChange = difficultyCriteriaActive && difficultyModsChanged(m.OldValue, m.NewValue);
 
                 if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true || difficultyCriteriaMayChange)
                     updateCriteria();
             });
+
+            trackModSettings(mods.Value);
 
             searchTextBox.Current.BindValueChanged(_ => updateCriteria());
 
@@ -294,13 +297,39 @@ namespace osu.Game.Screens.Select
             updateCriteria();
         }
 
+        /// <summary>
+        /// Whether the current sorting, grouping or star rating filters use mod-adjusted star ratings.
+        /// </summary>
+        private bool difficultyCriteriaActive => currentCriteria.Sort == SortMode.Difficulty
+                                                 || currentCriteria.Group == GroupMode.Difficulty
+                                                 || currentCriteria.StarDifficulty.HasFilter
+                                                 || currentCriteria.UserStarDifficulty.HasFilter;
+
         private static bool difficultyModsChanged(IReadOnlyList<Mod> oldMods, IReadOnlyList<Mod> newMods) =>
             ModUtils.FlattenMods(oldMods.Except(newMods).Concat(newMods.Except(oldMods))).Any(StarRatingApproximator.ModAffectsDifficulty);
+
+        private void trackModSettings(IReadOnlyList<Mod> currentMods)
+        {
+            modSettingChangeTracker?.Dispose();
+            modSettingChangeTracker = new ModSettingChangeTracker(currentMods);
+            modSettingChangeTracker.SettingChanged += mod =>
+            {
+                // Variant grouping also reads mods, but is invariant to rate and other setting changes today, so it isn't checked here.
+                if (!StarRatingApproximator.ModAffectsDifficulty(mod) || !difficultyCriteriaActive)
+                    return;
+
+                // Settings can change very often (e.g. when dragging a rate slider), so debounce re-filtering.
+                debouncedModSettingsChange?.Cancel();
+                debouncedModSettingsChange = Scheduler.AddDelayed(() => updateCriteria(), 100);
+            };
+        }
 
         protected override void Dispose(bool isDisposing)
         {
             base.Dispose(isDisposing);
             collectionsSubscription?.Dispose();
+            modSettingChangeTracker?.Dispose();
+            debouncedModSettingsChange?.Cancel();
         }
 
         /// <summary>
@@ -318,7 +347,8 @@ namespace osu.Game.Screens.Select
                 Group = groupDropdown.Current.Value?.Value ?? GroupMode.None,
                 AllowConvertedBeatmaps = showConvertedBeatmapsButton.Active.Value,
                 Ruleset = ruleset.Value,
-                Mods = mods.Value,
+                // Filtering runs on a background thread, so mods are copied to keep their settings fixed for the whole operation.
+                Mods = mods.Value.Select(m => m.DeepClone()).ToArray(),
                 Collection = collectionDropdown.Current.Value?.Collection,
                 LocalUserId = isValidUser ? localUser.Value.Id : null,
                 LocalUserUsername = isValidUser ? localUser.Value.Username : null,
@@ -348,6 +378,9 @@ namespace osu.Game.Screens.Select
                 // we can just do nothing other than clear it to avoid extra work and duplicated `CriteriaChanged` invocations
                 return;
             }
+
+            // New criteria include the latest mod settings, so any pending mod setting re-filter is redundant.
+            debouncedModSettingsChange?.Cancel();
 
             currentCriteria = CreateCriteria();
             CriteriaChanged?.Invoke(currentCriteria);
