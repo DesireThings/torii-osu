@@ -1,0 +1,1 @@
+attribution verify test 1 (settings only, hook disabled)
