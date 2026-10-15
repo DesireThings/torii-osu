@@ -239,6 +239,7 @@ namespace osu.Game.Tests.Visual.SongSelect
         [TestCase(DifficultyCriterion.Group)]
         [TestCase(DifficultyCriterion.StarQuery)]
         [TestCase(DifficultyCriterion.StarRange)]
+        [TestCase(DifficultyCriterion.GroupedSets)]
         public void TestDifficultyModToggleWithDifficultyCriteria(DifficultyCriterion criterion)
         {
             ImportBeatmapForRuleset(0);
@@ -261,6 +262,7 @@ namespace osu.Game.Tests.Visual.SongSelect
             ImportBeatmapForRuleset(0);
 
             LoadSongSelect();
+            splitBeatmapSets();
             recordFilterCount();
 
             ChangeMods(new OsuModDoubleTime());
@@ -294,6 +296,7 @@ namespace osu.Game.Tests.Visual.SongSelect
         [TestCase(DifficultyCriterion.Group)]
         [TestCase(DifficultyCriterion.StarQuery)]
         [TestCase(DifficultyCriterion.StarRange)]
+        [TestCase(DifficultyCriterion.GroupedSets)]
         public void TestDifficultyModSettingChangeWithDifficultyCriteria(DifficultyCriterion criterion)
         {
             ImportBeatmapForRuleset(0);
@@ -322,6 +325,7 @@ namespace osu.Game.Tests.Visual.SongSelect
             ImportBeatmapForRuleset(0);
 
             LoadSongSelect();
+            splitBeatmapSets();
             ChangeMods(new OsuModDoubleTime());
             recordFilterCount();
 
@@ -823,6 +827,18 @@ namespace osu.Game.Tests.Visual.SongSelect
             AddUntilStep("wait for debounce period", () => filter.Time.Current - changeTime > 200);
         }
 
+        private bool beatmapSetsGroupedTogether => Carousel.Filters.OfType<BeatmapCarouselFilterGrouping>().Single().BeatmapSetsGroupedTogether;
+
+        /// <summary>
+        /// Groups by rank achieved, which splits sets apart without any difficulty criteria being active.
+        /// </summary>
+        private void splitBeatmapSets()
+        {
+            GroupBy(GroupMode.RankAchieved);
+            AddUntilStep("wait for group applied", () => lastCriteria?.Group, () => Is.EqualTo(GroupMode.RankAchieved));
+            AddUntilStep("sets split apart", () => beatmapSetsGroupedTogether, () => Is.False);
+        }
+
         private void applyDifficultyCriterion(DifficultyCriterion criterion)
         {
             switch (criterion)
@@ -837,14 +853,22 @@ namespace osu.Game.Tests.Visual.SongSelect
                     AddUntilStep("wait for group applied", () => lastCriteria?.Group, () => Is.EqualTo(GroupMode.Difficulty));
                     break;
 
+                // Star rating filters are checked with sets split apart, so that they are the only active difficulty criterion.
                 case DifficultyCriterion.StarQuery:
+                    splitBeatmapSets();
                     AddStep("set star rating query", () => filterTextBox.Current.Value = "stars>1");
                     AddUntilStep("wait for query applied", () => lastCriteria?.StarDifficulty.HasFilter, () => Is.True);
                     break;
 
                 case DifficultyCriterion.StarRange:
+                    splitBeatmapSets();
                     AddStep("set minimum star rating", () => Config.SetValue(OsuSetting.DisplayStarsMinimum, 1.0));
                     AddUntilStep("wait for range applied", () => lastCriteria?.UserStarDifficulty.HasFilter, () => Is.True);
+                    break;
+
+                case DifficultyCriterion.GroupedSets:
+                    // Sets are grouped together by default.
+                    AddUntilStep("sets grouped together", () => beatmapSetsGroupedTogether, () => Is.True);
                     break;
 
                 default:
@@ -858,6 +882,7 @@ namespace osu.Game.Tests.Visual.SongSelect
             Group,
             StarQuery,
             StarRange,
+            GroupedSets,
         }
     }
 }

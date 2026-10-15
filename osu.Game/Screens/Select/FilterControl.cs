@@ -299,11 +299,13 @@ namespace osu.Game.Screens.Select
 
         /// <summary>
         /// Whether the current sorting, grouping or star rating filters use mod-adjusted star ratings.
+        /// When beatmaps are grouped by set, difficulties within each set are also ordered by mod-adjusted star rating.
         /// </summary>
         private bool difficultyCriteriaActive => currentCriteria.Sort == SortMode.Difficulty
                                                  || currentCriteria.Group == GroupMode.Difficulty
                                                  || currentCriteria.StarDifficulty.HasFilter
-                                                 || currentCriteria.UserStarDifficulty.HasFilter;
+                                                 || currentCriteria.UserStarDifficulty.HasFilter
+                                                 || BeatmapCarouselFilterGrouping.ShouldGroupBeatmapsTogether(currentCriteria);
 
         private static bool difficultyModsChanged(IReadOnlyList<Mod> oldMods, IReadOnlyList<Mod> newMods) =>
             ModUtils.FlattenMods(oldMods.Except(newMods).Concat(newMods.Except(oldMods))).Any(StarRatingApproximator.ModAffectsDifficulty);
