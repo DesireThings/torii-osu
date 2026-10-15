@@ -60,7 +60,7 @@ namespace osu.Game.Screens.Select
                 if (groupedSets)
                 {
                     if (ab.BeatmapSet!.Equals(bb.BeatmapSet))
-                        return compareDifficulty(ab, bb, criteria.Sort);
+                        return compareDifficulty(ab, bb, getEffectiveStarRating);
 
                     // If we're grouping by sets, all fallback sorts need to be aggregates for the set.
                     return compare(ab, bb, criteria.Sort, aggregate: true, getEffectiveStarRating);
@@ -153,9 +153,12 @@ namespace osu.Game.Screens.Select
             return comparison;
         }
 
-        private static int compareDifficulty(BeatmapInfo a, BeatmapInfo b, SortMode sort)
+        private static int compareDifficulty(BeatmapInfo a, BeatmapInfo b, Func<BeatmapInfo, double> getEffectiveStarRating)
         {
             int comparison = a.Ruleset.CompareTo(b.Ruleset);
+
+            if (comparison == 0)
+                comparison = getEffectiveStarRating(a).CompareTo(getEffectiveStarRating(b));
 
             if (comparison == 0)
                 comparison = a.StarRating.CompareTo(b.StarRating);

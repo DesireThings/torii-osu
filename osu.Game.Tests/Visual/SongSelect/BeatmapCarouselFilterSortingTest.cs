@@ -11,7 +11,9 @@ using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Beatmaps;
 using osu.Game.Graphics.Carousel;
 using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu;
 using osu.Game.Rulesets.Osu.Mods;
+using osu.Game.Rulesets.Taiko;
 using osu.Game.Screens.Select;
 using osu.Game.Screens.Select.Filter;
 using osu.Game.Tests.Resources;
@@ -399,6 +401,86 @@ namespace osu.Game.Tests.Visual.SongSelect
             var results = (await runSorting(SortMode.Difficulty, new List<BeatmapSetInfo> { setZzz, setAaa })).ToList();
             Assert.That(results[0], Is.EqualTo(setAaa.Beatmaps[0]));
             Assert.That(results[1], Is.EqualTo(setZzz.Beatmaps[0]));
+        }
+
+        [Test]
+        public async Task TestWithinSetOrderWithModAdjustment()
+        {
+            var set = TestResources.CreateTestBeatmapSetInfo(2);
+            var easier = set.Beatmaps[0];
+            var harder = set.Beatmaps[1];
+
+            easier.StarRating = 4.95;
+            easier.Difficulty.CircleSize = 7;
+            harder.StarRating = 5.0;
+            harder.Difficulty.CircleSize = 4;
+
+            var nomodResults = (await runSorting(SortMode.Title, new List<BeatmapSetInfo> { set })).ToList();
+            Assert.That(nomodResults[0], Is.EqualTo(easier));
+            Assert.That(nomodResults[1], Is.EqualTo(harder));
+
+            // Hard rock scales higher circle sizes more, so the nomod-easier difficulty (≈ 5.49) overtakes the other (≈ 5.45).
+            var hrResults = (await runSorting(SortMode.Title, new List<BeatmapSetInfo> { set }, new[] { new OsuModHardRock() })).ToList();
+            Assert.That(hrResults[0], Is.EqualTo(harder));
+            Assert.That(hrResults[1], Is.EqualTo(easier));
+        }
+
+        [Test]
+        public async Task TestWithinSetOrderExactCachedOverrulesApproximation()
+        {
+            var set = TestResources.CreateTestBeatmapSetInfo(2);
+            set.Beatmaps[0].StarRating = 4.0;
+            set.Beatmaps[1].StarRating = 5.0;
+
+            var mods = new[] { new OsuModDoubleTime() };
+
+            // Only the first difficulty is pre-populated in the cache, with an exact value of 8.0, so it should sort last.
+            var cache = new TestBeatmapDifficultyCache
+            {
+                PresetDifficulty = _ => new StarDifficulty(8.0, 0)
+            };
+
+            await cache.GetDifficultyAsync(set.Beatmaps[0], null, mods);
+
+            var results = (await runSorting(SortMode.Title, new List<BeatmapSetInfo> { set }, mods, cache)).ToList();
+            Assert.That(results[0], Is.EqualTo(set.Beatmaps[1]));
+            Assert.That(results[1], Is.EqualTo(set.Beatmaps[0]));
+        }
+
+        [Test]
+        public async Task TestWithinSetOrderTiedEffectiveStarsFallsBackToBaseStars()
+        {
+            var set = TestResources.CreateTestBeatmapSetInfo(2);
+            set.Beatmaps[0].StarRating = 4.5;
+            set.Beatmaps[1].StarRating = 4.2;
+
+            var mods = new[] { new OsuModDoubleTime() };
+
+            // Both difficulties have the same exact cached effective rating, so base star rating must break the tie.
+            var cache = new TestBeatmapDifficultyCache
+            {
+                PresetDifficulty = _ => new StarDifficulty(5.0, 0)
+            };
+
+            await cache.GetDifficultyAsync(set.Beatmaps[0], null, mods);
+            await cache.GetDifficultyAsync(set.Beatmaps[1], null, mods);
+
+            var results = (await runSorting(SortMode.Title, new List<BeatmapSetInfo> { set }, mods, cache)).ToList();
+            Assert.That(results[0], Is.EqualTo(set.Beatmaps[1]));
+            Assert.That(results[1], Is.EqualTo(set.Beatmaps[0]));
+        }
+
+        [Test]
+        public async Task TestWithinSetOrderGroupsByRulesetFirst()
+        {
+            var set = TestResources.CreateTestBeatmapSetInfo(2, new[] { new TaikoRuleset().RulesetInfo, new OsuRuleset().RulesetInfo });
+            set.Beatmaps[0].StarRating = 3.0;
+            set.Beatmaps[1].StarRating = 5.0;
+
+            // Ruleset takes precedence over star rating within a set.
+            var results = (await runSorting(SortMode.Title, new List<BeatmapSetInfo> { set }, new[] { new OsuModDoubleTime() })).ToList();
+            Assert.That(results[0].Ruleset.ShortName, Is.EqualTo("osu"));
+            Assert.That(results[1].Ruleset.ShortName, Is.EqualTo("taiko"));
         }
 
         private static async Task<IEnumerable<BeatmapInfo>> runSorting(SortMode sort, List<BeatmapSetInfo> beatmapSets, IReadOnlyList<Mod>? mods = null, BeatmapDifficultyCache? difficultyCache = null)
