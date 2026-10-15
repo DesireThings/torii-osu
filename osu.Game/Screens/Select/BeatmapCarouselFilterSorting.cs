@@ -17,6 +17,11 @@ namespace osu.Game.Screens.Select
     {
         public int BeatmapItemsCount { get; private set; }
 
+        /// <summary>
+        /// Used to sort by mod-adjusted star rating. When not set, an approximation is used for difficulty-altering mods.
+        /// </summary>
+        public BeatmapDifficultyCache? DifficultyCache { get; set; }
+
         private readonly Func<FilterCriteria> getCriteria;
 
         public BeatmapCarouselFilterSorting(Func<FilterCriteria> getCriteria)
@@ -32,6 +37,27 @@ namespace osu.Game.Screens.Select
 
             BeatmapItemsCount = items.Count();
 
+            var difficultyCache = DifficultyCache;
+            var effectiveStarRatings = new Dictionary<BeatmapInfo, double>();
+
+            // Star rating adjusted for the currently selected mods, computed at most once per beatmap per run.
+            double getEffectiveStarRating(BeatmapInfo beatmap)
+            {
+                if (!effectiveStarRatings.TryGetValue(beatmap, out double stars))
+                {
+                    if (difficultyCache != null)
+                        stars = difficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
+                    else if (criteria.Mods != null)
+                        stars = StarRatingApproximator.Approximate(beatmap, criteria.Ruleset, criteria.Mods);
+                    else
+                        stars = beatmap.StarRating;
+
+                    effectiveStarRatings[beatmap] = stars;
+                }
+
+                return stars;
+            }
+
             return items.Order(Comparer<CarouselItem>.Create((a, b) =>
             {
                 var ab = (BeatmapInfo)a.Model;
@@ -43,14 +69,14 @@ namespace osu.Game.Screens.Select
                         return compareDifficulty(ab, bb, criteria.Sort);
 
                     // If we're grouping by sets, all fallback sorts need to be aggregates for the set.
-                    return compare(ab, bb, criteria.Sort, aggregate: true);
+                    return compare(ab, bb, criteria.Sort, aggregate: true, getEffectiveStarRating);
                 }
 
-                return compare(ab, bb, criteria.Sort, aggregate: false);
+                return compare(ab, bb, criteria.Sort, aggregate: false, getEffectiveStarRating);
             })).ToList();
         }, cancellationToken).ConfigureAwait(false);
 
-        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate)
+        private static int compare(BeatmapInfo a, BeatmapInfo b, SortMode sort, bool aggregate, Func<BeatmapInfo, double> getEffectiveStarRating)
         {
             int comparison;
 
@@ -75,7 +101,9 @@ namespace osu.Game.Screens.Select
                     break;
 
                 case SortMode.Difficulty:
-                    comparison = a.StarRating.CompareTo(b.StarRating);
+                    comparison = getEffectiveStarRating(a).CompareTo(getEffectiveStarRating(b));
+                    if (comparison == 0)
+                        comparison = a.StarRating.CompareTo(b.StarRating);
                     break;
 
                 case SortMode.DateAdded:

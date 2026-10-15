@@ -27,6 +27,7 @@ using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Screens.Select.Filter;
+using osu.Game.Utils;
 using osuTK;
 using osuTK.Input;
 
@@ -240,7 +241,11 @@ namespace osu.Game.Screens.Select
                     return;
 
                 var rulesetCriteria = currentCriteria.RulesetCriteria;
-                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true)
+
+                // Sorting by difficulty uses mod-adjusted star ratings, so ordering may change when difficulty-altering mods are toggled.
+                bool sortMayChange = currentCriteria.Sort == SortMode.Difficulty && difficultyModsChanged(m.OldValue, m.NewValue);
+
+                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true || sortMayChange)
                     updateCriteria();
             });
 
@@ -283,6 +288,9 @@ namespace osu.Game.Screens.Select
 
             updateCriteria();
         }
+
+        private static bool difficultyModsChanged(IReadOnlyList<Mod> oldMods, IReadOnlyList<Mod> newMods) =>
+            ModUtils.FlattenMods(oldMods.Except(newMods).Concat(newMods.Except(oldMods))).Any(StarRatingApproximator.ModAffectsDifficulty);
 
         protected override void Dispose(bool isDisposing)
         {
