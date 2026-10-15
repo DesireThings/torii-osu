@@ -242,12 +242,15 @@ namespace osu.Game.Screens.Select
 
                 var rulesetCriteria = currentCriteria.RulesetCriteria;
 
-                // Sorting and grouping by difficulty use mod-adjusted star ratings,
-                // so ordering or group membership may change when difficulty-altering mods are toggled.
-                bool sortMayChange = (currentCriteria.Sort == SortMode.Difficulty || currentCriteria.Group == GroupMode.Difficulty)
-                                     && difficultyModsChanged(m.OldValue, m.NewValue);
+                // Sorting, grouping and star rating filters use mod-adjusted star ratings,
+                // so ordering, group membership or matches may change when difficulty-altering mods are toggled.
+                bool difficultyCriteriaMayChange = (currentCriteria.Sort == SortMode.Difficulty
+                                                    || currentCriteria.Group == GroupMode.Difficulty
+                                                    || currentCriteria.StarDifficulty.HasFilter
+                                                    || currentCriteria.UserStarDifficulty.HasFilter)
+                                                   && difficultyModsChanged(m.OldValue, m.NewValue);
 
-                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true || sortMayChange)
+                if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true || difficultyCriteriaMayChange)
                     updateCriteria();
             });
 

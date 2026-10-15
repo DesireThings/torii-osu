@@ -210,7 +210,7 @@ namespace osu.Game.Screens.Select
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
                 case GroupMode.Difficulty:
-                    return getGroupsBy(b => defineGroupByStars(getStarRating(b, criteria)), items);
+                    return getGroupsBy(b => defineGroupByStars(criteria.GetEffectiveStarRating(b, DifficultyCache)), items);
 
                 case GroupMode.Length:
                     return getGroupsBy(b => defineGroupByLength(b.Length), items);
@@ -371,20 +371,6 @@ namespace osu.Game.Screens.Select
             }
 
             return new GroupDefinition(301, "Over 300 BPM").Yield();
-        }
-
-        /// <summary>
-        /// Star rating adjusted for the currently selected mods.
-        /// </summary>
-        private double getStarRating(BeatmapInfo beatmap, FilterCriteria criteria)
-        {
-            if (DifficultyCache != null)
-                return DifficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
-
-            if (criteria.Mods != null)
-                return StarRatingApproximator.Approximate(beatmap, criteria.Ruleset, criteria.Mods);
-
-            return beatmap.StarRating;
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)

@@ -64,6 +64,7 @@ namespace osu.Game.Screens.Select
 
         private readonly LoadingLayer loading;
 
+        private readonly BeatmapCarouselFilterMatching matching;
         private readonly BeatmapCarouselFilterSorting sorting;
         private readonly BeatmapCarouselFilterGrouping grouping;
 
@@ -111,7 +112,7 @@ namespace osu.Game.Screens.Select
 
             Filters = new ICarouselFilter[]
             {
-                new BeatmapCarouselFilterMatching(() => Criteria!),
+                matching = new BeatmapCarouselFilterMatching(() => Criteria!),
                 sorting = new BeatmapCarouselFilterSorting(() => Criteria!),
                 grouping = new BeatmapCarouselFilterGrouping
                 {
@@ -128,6 +129,7 @@ namespace osu.Game.Screens.Select
         [BackgroundDependencyLoader]
         private void load(BeatmapStore beatmapStore, AudioManager audio, OsuConfigManager config, BeatmapDifficultyCache? difficultyCache, CancellationToken? cancellationToken)
         {
+            matching.DifficultyCache = difficultyCache;
             sorting.DifficultyCache = difficultyCache;
             grouping.DifficultyCache = difficultyCache;
 

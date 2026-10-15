@@ -45,13 +45,7 @@ namespace osu.Game.Screens.Select
             {
                 if (!effectiveStarRatings.TryGetValue(beatmap, out double stars))
                 {
-                    if (difficultyCache != null)
-                        stars = difficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
-                    else if (criteria.Mods != null)
-                        stars = StarRatingApproximator.Approximate(beatmap, criteria.Ruleset, criteria.Mods);
-                    else
-                        stars = beatmap.StarRating;
-
+                    stars = criteria.GetEffectiveStarRating(beatmap, difficultyCache);
                     effectiveStarRatings[beatmap] = stars;
                 }
 

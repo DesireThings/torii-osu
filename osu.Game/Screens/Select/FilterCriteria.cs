@@ -286,6 +286,22 @@ namespace osu.Game.Screens.Select
         }
 
         /// <summary>
+        /// Returns the star rating of a beatmap adjusted for <see cref="Mods"/>.
+        /// </summary>
+        /// <param name="beatmap">The beatmap.</param>
+        /// <param name="difficultyCache">Used to look up exact cached difficulties. When <c>null</c>, an approximation is used for difficulty-altering mods.</param>
+        public double GetEffectiveStarRating(BeatmapInfo beatmap, BeatmapDifficultyCache? difficultyCache)
+        {
+            if (difficultyCache != null)
+                return difficultyCache.GetEffectiveStarRating(beatmap, Ruleset, Mods);
+
+            if (Mods != null)
+                return StarRatingApproximator.Approximate(beatmap, Ruleset, Mods);
+
+            return beatmap.StarRating;
+        }
+
+        /// <summary>
         /// Given a new filter criteria, decide whether a full sort needs to be performed.
         /// </summary>
         /// <param name="newCriteria"></param>
