@@ -48,6 +48,11 @@ namespace osu.Game.Screens.Select
         public required Func<FilterCriteria, IReadOnlyDictionary<Guid, ScoreRank>> GetLocalUserTopRanks { get; init; }
         public required Func<HashSet<int>> GetFavouriteBeatmapSets { get; init; }
 
+        /// <summary>
+        /// Used to group by mod-adjusted star rating. When not set, an approximation is used for difficulty-altering mods.
+        /// </summary>
+        public BeatmapDifficultyCache? DifficultyCache { get; set; }
+
         public async Task<List<CarouselItem>> Run(IEnumerable<CarouselItem> items, CancellationToken cancellationToken)
         {
             return await Task.Run(() =>
@@ -205,7 +210,7 @@ namespace osu.Game.Screens.Select
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
                 case GroupMode.Difficulty:
-                    return getGroupsBy(b => defineGroupByStars(b.StarRating), items);
+                    return getGroupsBy(b => defineGroupByStars(getStarRating(b, criteria)), items);
 
                 case GroupMode.Length:
                     return getGroupsBy(b => defineGroupByLength(b.Length), items);
@@ -366,6 +371,20 @@ namespace osu.Game.Screens.Select
             }
 
             return new GroupDefinition(301, "Over 300 BPM").Yield();
+        }
+
+        /// <summary>
+        /// Star rating adjusted for the currently selected mods.
+        /// </summary>
+        private double getStarRating(BeatmapInfo beatmap, FilterCriteria criteria)
+        {
+            if (DifficultyCache != null)
+                return DifficultyCache.GetEffectiveStarRating(beatmap, criteria.Ruleset, criteria.Mods);
+
+            if (criteria.Mods != null)
+                return StarRatingApproximator.Approximate(beatmap, criteria.Ruleset, criteria.Mods);
+
+            return beatmap.StarRating;
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)

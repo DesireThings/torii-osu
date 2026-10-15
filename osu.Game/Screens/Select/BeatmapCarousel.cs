@@ -129,6 +129,7 @@ namespace osu.Game.Screens.Select
         private void load(BeatmapStore beatmapStore, AudioManager audio, OsuConfigManager config, BeatmapDifficultyCache? difficultyCache, CancellationToken? cancellationToken)
         {
             sorting.DifficultyCache = difficultyCache;
+            grouping.DifficultyCache = difficultyCache;
 
             setupPools();
             detachedBeatmaps = beatmapStore.GetBeatmapSets(cancellationToken);

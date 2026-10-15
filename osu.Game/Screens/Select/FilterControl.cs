@@ -242,8 +242,10 @@ namespace osu.Game.Screens.Select
 
                 var rulesetCriteria = currentCriteria.RulesetCriteria;
 
-                // Sorting by difficulty uses mod-adjusted star ratings, so ordering may change when difficulty-altering mods are toggled.
-                bool sortMayChange = currentCriteria.Sort == SortMode.Difficulty && difficultyModsChanged(m.OldValue, m.NewValue);
+                // Sorting and grouping by difficulty use mod-adjusted star ratings,
+                // so ordering or group membership may change when difficulty-altering mods are toggled.
+                bool sortMayChange = (currentCriteria.Sort == SortMode.Difficulty || currentCriteria.Group == GroupMode.Difficulty)
+                                     && difficultyModsChanged(m.OldValue, m.NewValue);
 
                 if (rulesetCriteria?.FilterMayChangeFromMods(currentCriteria, m) == true || sortMayChange)
                     updateCriteria();
