@@ -26,6 +26,7 @@ using osu.Game.Rulesets.UI;
 using osu.Game.Scoring;
 using osu.Game.Skinning;
 using osu.Game.Storyboards;
+using osu.Game.Utils;
 
 namespace osu.Game.Beatmaps
 {
@@ -198,6 +199,26 @@ namespace osu.Game.Beatmaps
 
             var lookup = new DifficultyCacheLookup(localBeatmapInfo, localRulesetInfo, mods);
             return CheckExists(lookup, out var existing) ? existing : null;
+        }
+
+        /// <summary>
+        /// Retrieves the effective star rating for a beatmap, considering active mods and cached difficulties.
+        /// If not yet computed in the difficulty cache, falls back to a fast approximation for difficulty-altering mods.
+        /// </summary>
+        /// <param name="beatmapInfo">The beatmap.</param>
+        /// <param name="rulesetInfo">The ruleset.</param>
+        /// <param name="mods">The mods.</param>
+        /// <returns>The effective star rating.</returns>
+        public double GetEffectiveStarRating(BeatmapInfo beatmapInfo, IRulesetInfo? rulesetInfo = null, IEnumerable<Mod>? mods = null)
+        {
+            if (mods == null || !ModUtils.FlattenMods(mods).Any(StarRatingApproximator.ModAffectsDifficulty))
+                return beatmapInfo.StarRating;
+
+            var existing = GetExistingDifficulty(beatmapInfo, rulesetInfo, mods);
+            if (existing != null)
+                return existing.Value.Stars;
+
+            return StarRatingApproximator.Approximate(beatmapInfo, rulesetInfo, mods);
         }
 
         protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken cancellationToken = default)
