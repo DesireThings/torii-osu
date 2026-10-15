@@ -29,6 +29,15 @@ namespace osu.Game.Tests.Visual.SongSelect
         private FilterControl filter => SongSelect.ChildrenOfType<FilterControl>().Single();
         private ShearedFilterTextBox filterTextBox => SongSelect.ChildrenOfType<ShearedFilterTextBox>().Single();
         private int filterOperationsCount;
+        private int filterCountBaseline;
+        private FilterCriteria? lastCriteria;
+
+        public override void SetUpSteps()
+        {
+            base.SetUpSteps();
+
+            AddStep("reset star range", () => Config.GetBindable<double>(OsuSetting.DisplayStarsMinimum).SetDefault());
+        }
 
         protected override void LoadSongSelect()
         {
@@ -37,7 +46,9 @@ namespace osu.Game.Tests.Visual.SongSelect
             AddStep("hook filter event", () =>
             {
                 filterOperationsCount = 0;
+                lastCriteria = null;
                 filter.CriteriaChanged += _ => filterOperationsCount++;
+                filter.CriteriaChanged += c => lastCriteria = c;
             });
         }
 
@@ -222,6 +233,61 @@ namespace osu.Game.Tests.Visual.SongSelect
             // Add filterable mod. Should re-filter.
             AddStep("add filterable mod", () => SelectedMods.Value = new Mod[] { new ManiaModKey3() });
             AddAssert("filter count is 5", () => filterOperationsCount, () => Is.EqualTo(5));
+        }
+
+        [TestCase(DifficultyCriterion.Sort)]
+        [TestCase(DifficultyCriterion.Group)]
+        [TestCase(DifficultyCriterion.StarQuery)]
+        [TestCase(DifficultyCriterion.StarRange)]
+        public void TestDifficultyModToggleWithDifficultyCriteria(DifficultyCriterion criterion)
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(criterion);
+            recordFilterCount();
+
+            // Mod-adjusted star ratings change, so the carousel should re-filter.
+            ChangeMods(new OsuModDoubleTime());
+            assertNewFilterCount(1);
+
+            ChangeMods();
+            assertNewFilterCount(2);
+        }
+
+        [Test]
+        public void TestDifficultyModToggleWithoutDifficultyCriteria()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            recordFilterCount();
+
+            ChangeMods(new OsuModDoubleTime());
+            assertNewFilterCount(0);
+
+            ChangeMods();
+            assertNewFilterCount(0);
+        }
+
+        [Test]
+        public void TestNonDifficultyModToggleWithDifficultyCriteria()
+        {
+            ImportBeatmapForRuleset(0);
+
+            LoadSongSelect();
+            applyDifficultyCriterion(DifficultyCriterion.Sort);
+            recordFilterCount();
+
+            ChangeMods(new OsuModMirror());
+            assertNewFilterCount(0);
+
+            ChangeMods(new OsuModMirror(), new OsuModDoubleTime());
+            assertNewFilterCount(1);
+
+            // Only the non-difficulty mod is removed. The new double time instance is equal by value, so isn't a change.
+            ChangeMods(new OsuModDoubleTime());
+            assertNewFilterCount(1);
         }
 
         [Test]
@@ -593,5 +659,47 @@ namespace osu.Game.Tests.Visual.SongSelect
         private NoResultsPlaceholder? getPlaceholder() => SongSelect.ChildrenOfType<NoResultsPlaceholder>().FirstOrDefault();
 
         private void checkMatchedBeatmaps(int expected) => AddUntilStep($"{expected} matching shown", () => Carousel.MatchedBeatmapsCount, () => Is.EqualTo(expected));
+
+        private void recordFilterCount() => AddStep("record filter count", () => filterCountBaseline = filterOperationsCount);
+
+        private void assertNewFilterCount(int expected) =>
+            AddAssert($"{expected} new filter operations", () => filterOperationsCount - filterCountBaseline, () => Is.EqualTo(expected));
+
+        private void applyDifficultyCriterion(DifficultyCriterion criterion)
+        {
+            switch (criterion)
+            {
+                case DifficultyCriterion.Sort:
+                    SortBy(SortMode.Difficulty);
+                    AddUntilStep("wait for sort applied", () => lastCriteria?.Sort, () => Is.EqualTo(SortMode.Difficulty));
+                    break;
+
+                case DifficultyCriterion.Group:
+                    GroupBy(GroupMode.Difficulty);
+                    AddUntilStep("wait for group applied", () => lastCriteria?.Group, () => Is.EqualTo(GroupMode.Difficulty));
+                    break;
+
+                case DifficultyCriterion.StarQuery:
+                    AddStep("set star rating query", () => filterTextBox.Current.Value = "stars>1");
+                    AddUntilStep("wait for query applied", () => lastCriteria?.StarDifficulty.HasFilter, () => Is.True);
+                    break;
+
+                case DifficultyCriterion.StarRange:
+                    AddStep("set minimum star rating", () => Config.SetValue(OsuSetting.DisplayStarsMinimum, 1.0));
+                    AddUntilStep("wait for range applied", () => lastCriteria?.UserStarDifficulty.HasFilter, () => Is.True);
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(criterion), criterion, null);
+            }
+        }
+
+        public enum DifficultyCriterion
+        {
+            Sort,
+            Group,
+            StarQuery,
+            StarRange,
+        }
     }
 }
