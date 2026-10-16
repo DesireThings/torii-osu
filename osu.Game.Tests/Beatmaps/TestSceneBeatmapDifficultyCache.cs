@@ -278,6 +278,42 @@ namespace osu.Game.Tests.Beatmaps
         }
 
         [Test]
+        public void TestKeyFromOrderedModsEqualsStandardKey()
+        {
+            var key1 = new BeatmapDifficultyCache.DifficultyCacheLookup(new BeatmapInfo { ID = guid }, new RulesetInfo { OnlineID = 0 },
+                new Mod[] { new OsuModHardRock(), new OsuModDoubleTime { SpeedChange = { Value = 1.3 } } });
+            var key2 = BeatmapDifficultyCache.DifficultyCacheLookup.FromOrderedMods(new BeatmapInfo { ID = guid }, new RulesetInfo { OnlineID = 0 },
+                BeatmapDifficultyCache.DifficultyCacheLookup.OrderMods(new Mod[] { new OsuModDoubleTime { SpeedChange = { Value = 1.3 } }, new OsuModHardRock() }));
+
+            Assert.That(key1, Is.EqualTo(key2));
+            Assert.That(key1.GetHashCode(), Is.EqualTo(key2.GetHashCode()));
+        }
+
+        [Test]
+        public void TestEffectiveStarRatingLookupMatchesGetEffectiveStarRating()
+        {
+            var testCache = new TestBeatmapDifficultyCache();
+            var bInfo = createDetachedBeatmap();
+
+            testCache.ComputeDifficulty = _ => new StarDifficulty(7.2, 0);
+            testCache.GetDifficultyAsync(bInfo, null, new Mod[] { new OsuModDoubleTime { SpeedChange = { Value = 1.3 } }, new OsuModHardRock() }).GetResultSafely();
+
+            // Mods given in a different order, as different instances, still find the exact cached value.
+            var cachedMods = new Mod[] { new OsuModHardRock(), new OsuModDoubleTime { SpeedChange = { Value = 1.3 } } };
+            Assert.That(testCache.CreateEffectiveStarRatingLookup(null, cachedMods).GetEffectiveStarRating(bInfo), Is.EqualTo(7.2));
+
+            // A different speed isn't cached, so the same approximation as GetEffectiveStarRating is used.
+            var uncachedMods = new Mod[] { new OsuModHardRock(), new OsuModDoubleTime { SpeedChange = { Value = 1.5 } } };
+            double approximated = testCache.CreateEffectiveStarRatingLookup(null, uncachedMods).GetEffectiveStarRating(bInfo);
+            Assert.That(approximated, Is.Not.EqualTo(7.2));
+            Assert.That(approximated, Is.EqualTo(testCache.GetEffectiveStarRating(bInfo, null, uncachedMods)));
+
+            // Without difficulty-altering mods, the base star rating is returned.
+            Assert.That(testCache.CreateEffectiveStarRatingLookup(null, null).GetEffectiveStarRating(bInfo), Is.EqualTo(4.0));
+            Assert.That(testCache.CreateEffectiveStarRatingLookup(null, new Mod[] { new OsuModNoFail() }).GetEffectiveStarRating(bInfo), Is.EqualTo(4.0));
+        }
+
+        [Test]
         public void TestApproximateStarRatingFormulas()
         {
             var bInfo = new BeatmapInfo { StarRating = 4.0 };

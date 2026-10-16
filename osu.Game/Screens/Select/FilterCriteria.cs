@@ -302,6 +302,25 @@ namespace osu.Game.Screens.Select
         }
 
         /// <summary>
+        /// Creates a function which returns the same values as <see cref="GetEffectiveStarRating"/>, for use across all beatmaps in one filter run.
+        /// Work which only depends on <see cref="Ruleset"/> and <see cref="Mods"/> is done once, so neither may change while the function is in use.
+        /// </summary>
+        /// <param name="difficultyCache">Used to look up exact cached difficulties. When <c>null</c>, an approximation is used for difficulty-altering mods.</param>
+        internal Func<BeatmapInfo, double> CreateEffectiveStarRatingLookup(BeatmapDifficultyCache? difficultyCache)
+        {
+            if (difficultyCache != null)
+                return difficultyCache.CreateEffectiveStarRatingLookup(Ruleset, Mods).GetEffectiveStarRating;
+
+            var ruleset = Ruleset;
+            var mods = Mods;
+
+            if (mods != null)
+                return beatmap => StarRatingApproximator.Approximate(beatmap, ruleset, mods);
+
+            return beatmap => beatmap.StarRating;
+        }
+
+        /// <summary>
         /// Given a new filter criteria, decide whether a full sort needs to be performed.
         /// </summary>
         /// <param name="newCriteria"></param>

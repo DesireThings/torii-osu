@@ -4,10 +4,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using NUnit.Framework;
 using NUnit.Framework.Legacy;
 using osu.Framework.Bindables;
 using osu.Game.Beatmaps;
+using osu.Game.Graphics.Carousel;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Filter;
 using osu.Game.Rulesets.Mods;
@@ -694,6 +697,32 @@ namespace osu.Game.Tests.NonVisual.Filtering
             upperCriteria.Mods = new Mod[] { new OsuModDoubleTime() };
             carouselItem.Filter(upperCriteria);
             ClassicAssert.True(carouselItem.Filtered.Value);
+        }
+
+        [Test]
+        public async Task TestModAdjustedStarDifficultyMatchingUsesCachedDifficulty()
+        {
+            var beatmap = getExampleBeatmap();
+            var mods = new Mod[] { new OsuModDoubleTime() };
+
+            var cache = new TestBeatmapDifficultyCache();
+            await cache.GetDifficultyAsync(beatmap, null, mods);
+
+            // Double Time is approximated at ≈ 5.34, so only the exact cached value of 7.2 is in [7, 8].
+            var criteria = new FilterCriteria { Mods = mods };
+            criteria.UserStarDifficulty.Min = 7.0;
+            criteria.UserStarDifficulty.Max = 8.0;
+
+            var matching = new BeatmapCarouselFilterMatching(() => criteria) { DifficultyCache = cache };
+            var results = await matching.Run(new[] { new CarouselItem(beatmap) }, CancellationToken.None);
+
+            Assert.That(results.Select(i => i.Model).ToArray(), Is.EqualTo(new[] { beatmap }));
+        }
+
+        private partial class TestBeatmapDifficultyCache : BeatmapDifficultyCache
+        {
+            protected override Task<StarDifficulty?> ComputeValueAsync(DifficultyCacheLookup lookup, CancellationToken token = default)
+                => Task.FromResult<StarDifficulty?>(new StarDifficulty(7.2, 0));
         }
 
         // This is a temporary class that emulates what these tests originally used from song select v1.

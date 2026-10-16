@@ -210,7 +210,10 @@ namespace osu.Game.Screens.Select
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
                 case GroupMode.Difficulty:
-                    return getGroupsBy(b => defineGroupByStars(criteria.GetEffectiveStarRating(b, DifficultyCache)), items);
+                {
+                    var getEffectiveStarRating = criteria.CreateEffectiveStarRatingLookup(DifficultyCache);
+                    return getGroupsBy(b => defineGroupByStars(getEffectiveStarRating(b)), items);
+                }
 
                 case GroupMode.Length:
                     return getGroupsBy(b => defineGroupByLength(b.Length), items);

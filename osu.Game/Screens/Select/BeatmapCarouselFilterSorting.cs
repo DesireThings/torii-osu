@@ -37,7 +37,7 @@ namespace osu.Game.Screens.Select
 
             BeatmapItemsCount = items.Count();
 
-            var difficultyCache = DifficultyCache;
+            var lookupEffectiveStarRating = criteria.CreateEffectiveStarRatingLookup(DifficultyCache);
             var effectiveStarRatings = new Dictionary<BeatmapInfo, double>();
 
             // Star rating adjusted for the currently selected mods, computed at most once per beatmap per run.
@@ -46,7 +46,7 @@ namespace osu.Game.Screens.Select
             {
                 if (!effectiveStarRatings.TryGetValue(beatmap, out double stars))
                 {
-                    stars = criteria.GetEffectiveStarRating(beatmap, difficultyCache);
+                    stars = lookupEffectiveStarRating(beatmap);
                     effectiveStarRatings[beatmap] = stars;
                 }
 

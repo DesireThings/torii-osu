@@ -221,6 +221,15 @@ namespace osu.Game.Beatmaps
             return StarRatingApproximator.Approximate(beatmapInfo, rulesetInfo, mods);
         }
 
+        /// <summary>
+        /// Creates a lookup which returns the same values as <see cref="GetEffectiveStarRating"/> for many beatmaps with the same ruleset and mods.
+        /// The mods are ordered, copied and checked for difficulty adjustments once, rather than for every beatmap.
+        /// </summary>
+        /// <param name="rulesetInfo">The ruleset.</param>
+        /// <param name="mods">The mods. Their settings must not change while the lookup is in use.</param>
+        internal EffectiveStarRatingLookup CreateEffectiveStarRatingLookup(IRulesetInfo? rulesetInfo, IEnumerable<Mod>? mods)
+            => new EffectiveStarRatingLookup(this, rulesetInfo, mods);
+
         private double getEffectiveStarRating(IBeatmapInfo beatmapInfo) => beatmapInfo is BeatmapInfo localBeatmapInfo
             ? GetEffectiveStarRating(localBeatmapInfo, currentRuleset.Value, currentMods.Value)
             : beatmapInfo.StarRating;
@@ -428,12 +437,32 @@ namespace osu.Game.Beatmaps
             public readonly Mod[] OrderedMods;
 
             public DifficultyCacheLookup(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, IEnumerable<Mod>? mods)
+                : this(beatmapInfo, ruleset, OrderMods(mods))
+            {
+            }
+
+            /// <param name="beatmapInfo">The beatmap.</param>
+            /// <param name="ruleset">The ruleset.</param>
+            /// <param name="orderedMods">Mods returned by <see cref="OrderMods"/>. Used as-is, without ordering or copying.</param>
+            private DifficultyCacheLookup(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, Mod[] orderedMods)
             {
                 BeatmapInfo = beatmapInfo;
                 // In the case that the user hasn't given us a ruleset, use the beatmap's default ruleset.
                 Ruleset = ruleset ?? BeatmapInfo.Ruleset;
-                OrderedMods = mods?.OrderBy(m => m.Acronym).Select(mod => mod.DeepClone()).ToArray() ?? Array.Empty<Mod>();
+                OrderedMods = orderedMods;
             }
+
+            /// <summary>
+            /// Creates a lookup from mods which were already prepared by <see cref="OrderMods"/>, so many lookups can share one array.
+            /// </summary>
+            internal static DifficultyCacheLookup FromOrderedMods(BeatmapInfo beatmapInfo, RulesetInfo? ruleset, Mod[] orderedMods)
+                => new DifficultyCacheLookup(beatmapInfo, ruleset, orderedMods);
+
+            /// <summary>
+            /// Orders and copies mods into the form stored in <see cref="OrderedMods"/>.
+            /// </summary>
+            internal static Mod[] OrderMods(IEnumerable<Mod>? mods)
+                => mods?.OrderBy(m => m.Acronym).Select(mod => mod.DeepClone()).ToArray() ?? Array.Empty<Mod>();
 
             public bool Equals(DifficultyCacheLookup other)
                 => BeatmapInfo.Equals(other.BeatmapInfo)
@@ -451,6 +480,42 @@ namespace osu.Game.Beatmaps
                     hashCode.Add(mod);
 
                 return hashCode.ToHashCode();
+            }
+        }
+
+        /// <summary>
+        /// Returns the same values as <see cref="GetEffectiveStarRating"/> for a fixed ruleset and set of mods.
+        /// </summary>
+        internal sealed class EffectiveStarRatingLookup
+        {
+            private readonly BeatmapDifficultyCache cache;
+            private readonly IRulesetInfo? rulesetInfo;
+            private readonly IEnumerable<Mod>? mods;
+            private readonly Mod[] orderedMods;
+            private readonly bool modsAffectDifficulty;
+
+            public EffectiveStarRatingLookup(BeatmapDifficultyCache cache, IRulesetInfo? rulesetInfo, IEnumerable<Mod>? mods)
+            {
+                this.cache = cache;
+                this.rulesetInfo = rulesetInfo;
+                this.mods = mods;
+
+                modsAffectDifficulty = mods != null && ModUtils.FlattenMods(mods).Any(StarRatingApproximator.ModAffectsDifficulty);
+                orderedMods = modsAffectDifficulty ? DifficultyCacheLookup.OrderMods(mods) : Array.Empty<Mod>();
+            }
+
+            public double GetEffectiveStarRating(BeatmapInfo beatmapInfo)
+            {
+                if (!modsAffectDifficulty)
+                    return beatmapInfo.StarRating;
+
+                // Same as GetExistingDifficulty, but sharing one ordered copy of the mods across all lookups.
+                if ((rulesetInfo ?? beatmapInfo.Ruleset) is RulesetInfo localRulesetInfo
+                    && cache.CheckExists(DifficultyCacheLookup.FromOrderedMods(beatmapInfo, localRulesetInfo, orderedMods), out var existing)
+                    && existing != null)
+                    return existing.Value.Stars;
+
+                return StarRatingApproximator.Approximate(beatmapInfo, rulesetInfo, mods!);
             }
         }
 
