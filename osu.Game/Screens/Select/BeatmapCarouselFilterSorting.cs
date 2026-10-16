@@ -41,7 +41,8 @@ namespace osu.Game.Screens.Select
             var effectiveStarRatings = new Dictionary<BeatmapInfo, double>();
 
             // Star rating adjusted for the currently selected mods, computed at most once per beatmap per run.
-            double getEffectiveStarRating(BeatmapInfo beatmap)
+            // Held as a single delegate instance: passing a capturing local function as a Func allocates a new delegate on every comparison.
+            Func<BeatmapInfo, double> getEffectiveStarRating = beatmap =>
             {
                 if (!effectiveStarRatings.TryGetValue(beatmap, out double stars))
                 {
@@ -50,7 +51,7 @@ namespace osu.Game.Screens.Select
                 }
 
                 return stars;
-            }
+            };
 
             return items.Order(Comparer<CarouselItem>.Create((a, b) =>
             {
