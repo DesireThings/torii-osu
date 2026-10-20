@@ -7,6 +7,7 @@ using System.Linq;
 using osu.Framework.Bindables;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Objects.Legacy;
 using osu.Game.Utils;
 
 namespace osu.Game.Beatmaps
@@ -158,10 +159,12 @@ namespace osu.Game.Beatmaps
                             {
                                 if (diff != null)
                                 {
-                                    if (da.SettingsMap.TryGetValue("circle_size", out var csSetting) && csSetting is IBindable<float?> csBindable && csBindable.Value is float csVal)
-                                        multiplier *= Math.Pow(1.05, csVal - diff.CircleSize);
-                                    if (da.SettingsMap.TryGetValue("approach_rate", out var arSetting) && arSetting is IBindable<float?> arBindable && arBindable.Value is float arVal)
-                                        multiplier *= Math.Pow(1.02, arVal - diff.ApproachRate);
+                                    if (tryGetDifficultySetting(da, "circle_size", out float csVal))
+                                        multiplier *= difficultyAdjustCircleSizeFactor(diff.CircleSize, csVal);
+                                    if (tryGetDifficultySetting(da, "approach_rate", out float arVal))
+                                        multiplier *= difficultyAdjustApproachRateFactor(diff.ApproachRate, arVal, baseStars);
+                                    if (tryGetDifficultySetting(da, "overall_difficulty", out float odVal))
+                                        multiplier *= difficultyAdjustOverallDifficultyFactor(diff.OverallDifficulty, odVal);
                                 }
                                 break;
                             }
@@ -182,5 +185,62 @@ namespace osu.Game.Beatmaps
 
             return baseStars * multiplier;
         }
+
+        private static bool tryGetDifficultySetting(ModDifficultyAdjust mod, string key, out float value)
+        {
+            value = 0;
+
+            if (!mod.SettingsMap.TryGetValue(key, out var setting) || setting is not IBindable<float?> bindable || bindable.Value is not float v)
+                return false;
+
+            value = v;
+            return true;
+        }
+
+        // The Difficulty Adjust factors below were fitted to the osu! difficulty calculator, on log(exact / nomod) star rating
+        // across a sample of real beatmaps with each setting swept over its extended range.
+
+        /// <summary>
+        /// Circle size scales aim distances through the object radius.
+        /// </summary>
+        private static double difficultyAdjustCircleSizeFactor(double baseCircleSize, double circleSize)
+        {
+            double l = Math.Log(osuRadius(baseCircleSize) / osuRadius(circleSize));
+            return Math.Exp(l > 0 ? 0.691 * l : 0.419 * l);
+        }
+
+        /// <summary>
+        /// Approach rate changes how long objects are visible for. Lowering it raises reading difficulty, most on dense high-AR maps.
+        /// Raising it barely changes star rating until the preempt drops below 450ms (above AR 10).
+        /// </summary>
+        private static double difficultyAdjustApproachRateFactor(double baseApproachRate, double approachRate, double baseStars)
+        {
+            double basePreempt = osuPreempt(baseApproachRate);
+            double preempt = osuPreempt(approachRate);
+
+            double l = Math.Log(preempt / basePreempt);
+            double longer = Math.Max(l, 0);
+            double shorter = Math.Min(l, 0);
+            double belowMinimumPreempt = (Math.Max(0, 450 - preempt) - Math.Max(0, 450 - basePreempt)) / 150;
+
+            return Math.Exp(longer * (0.2496 + 0.0091 * Math.Log(baseStars) - 0.0297 * (baseApproachRate - 8))
+                            + 0.0272 * shorter
+                            + belowMinimumPreempt * (0.1412 + 0.2979 * (10 - baseApproachRate) / 10));
+        }
+
+        /// <summary>
+        /// Overall difficulty scales the reading and aim ratings.
+        /// </summary>
+        private static double difficultyAdjustOverallDifficultyFactor(double baseOverallDifficulty, double overallDifficulty)
+        {
+            double l = Math.Log(readingOverallDifficultyMultiplier(overallDifficulty) / readingOverallDifficultyMultiplier(baseOverallDifficulty));
+            return Math.Exp(l > 0 ? 0.0709 * l : 0.137 * l);
+        }
+
+        private static double osuRadius(double circleSize) => 64 * LegacyRulesetExtensions.CalculateScaleFromCircleSize((float)circleSize);
+
+        private static double osuPreempt(double approachRate) => IBeatmapDifficultyInfo.DifficultyRange(approachRate, 1800, 1200, 450);
+
+        private static double readingOverallDifficultyMultiplier(double overallDifficulty) => 0.75 + Math.Pow(Math.Max(0, overallDifficulty), 2.2) / 800;
     }
 }

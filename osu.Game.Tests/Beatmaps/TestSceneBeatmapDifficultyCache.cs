@@ -355,6 +355,98 @@ namespace osu.Game.Tests.Beatmaps
         }
 
         [Test]
+        public void TestApproximateStarRatingDifficultyAdjust()
+        {
+            var bInfo = new BeatmapInfo
+            {
+                StarRating = 4.0,
+                Difficulty = new BeatmapDifficulty { CircleSize = 4, ApproachRate = 9, OverallDifficulty = 8, DrainRate = 5 },
+            };
+
+            double approximate(Action<OsuModDifficultyAdjust> configure)
+            {
+                var difficultyAdjust = new OsuModDifficultyAdjust { ExtendedLimits = { Value = true } };
+                configure(difficultyAdjust);
+                return StarRatingApproximator.Approximate(bInfo, null, new Mod[] { difficultyAdjust });
+            }
+
+            // No overrides, overrides matching the beatmap and HP (unused by osu! star rating) leave it unchanged.
+            Assert.That(approximate(_ => { }), Is.EqualTo(4.0));
+            Assert.That(approximate(da =>
+            {
+                da.CircleSize.Value = 4;
+                da.ApproachRate.Value = 9;
+                da.OverallDifficulty.Value = 8;
+                da.DrainRate.Value = 10;
+            }), Is.EqualTo(4.0).Within(1e-9));
+
+            // Ranges are around the median response of the exact calculator measured on real beatmaps.
+            Assert.That(approximate(da => da.CircleSize.Value = 0) / 4, Is.InRange(0.80, 0.90));
+            Assert.That(approximate(da => da.CircleSize.Value = 7) / 4, Is.InRange(1.25, 1.45));
+            Assert.That(approximate(da => da.CircleSize.Value = 11) / 4, Is.InRange(3.4, 4.4));
+
+            // Lowering approach rate raises star rating, increasingly so the further it goes.
+            double ar5 = approximate(da => da.ApproachRate.Value = 5);
+            double ar0 = approximate(da => da.ApproachRate.Value = 0);
+            double arMinus10 = approximate(da => da.ApproachRate.Value = -10);
+            Assert.That(ar5, Is.GreaterThan(4.0));
+            Assert.That(ar0, Is.GreaterThan(ar5));
+            Assert.That(ar0 / 4, Is.InRange(1.2, 1.4));
+            Assert.That(arMinus10 / 4, Is.InRange(1.35, 1.55));
+
+            // Raising it barely matters up to AR 10, then jumps once the preempt drops below 450ms.
+            Assert.That(approximate(da => da.ApproachRate.Value = 10) / 4, Is.InRange(0.97, 1.01));
+            Assert.That(approximate(da => da.ApproachRate.Value = 11) / 4, Is.InRange(1.10, 1.25));
+
+            Assert.That(approximate(da => da.OverallDifficulty.Value = 10) / 4, Is.InRange(1.0, 1.02));
+            Assert.That(approximate(da => da.OverallDifficulty.Value = 0) / 4, Is.InRange(0.96, 1.0));
+        }
+
+        [TestCase(2f, 10f, 3f)]
+        [TestCase(5.5f, 7f, 6f)]
+        [TestCase(7f, 9.5f, 10f)]
+        public void TestApproximateStarRatingDifficultyAdjustMatchingBeatmapIsUnchanged(float circleSize, float approachRate, float overallDifficulty)
+        {
+            var bInfo = new BeatmapInfo
+            {
+                StarRating = 5.0,
+                Difficulty = new BeatmapDifficulty { CircleSize = circleSize, ApproachRate = approachRate, OverallDifficulty = overallDifficulty },
+            };
+
+            var difficultyAdjust = new OsuModDifficultyAdjust
+            {
+                CircleSize = { Value = circleSize },
+                ApproachRate = { Value = approachRate },
+                OverallDifficulty = { Value = overallDifficulty },
+            };
+
+            Assert.That(StarRatingApproximator.Approximate(bInfo, null, new Mod[] { difficultyAdjust }), Is.EqualTo(5.0).Within(1e-9));
+        }
+
+        [TestCase(2f)]
+        [TestCase(4f)]
+        [TestCase(7f)]
+        public void TestApproximateStarRatingDifficultyAdjustCircleSizeIsMonotonic(float baseCircleSize)
+        {
+            var bInfo = new BeatmapInfo
+            {
+                StarRating = 5.0,
+                Difficulty = new BeatmapDifficulty { CircleSize = baseCircleSize, ApproachRate = 9, OverallDifficulty = 8 },
+            };
+
+            double previous = 0;
+
+            for (float circleSize = 0; circleSize <= 11; circleSize += 0.1f)
+            {
+                var difficultyAdjust = new OsuModDifficultyAdjust { ExtendedLimits = { Value = true }, CircleSize = { Value = circleSize } };
+                double stars = StarRatingApproximator.Approximate(bInfo, null, new Mod[] { difficultyAdjust });
+
+                Assert.That(stars, Is.GreaterThan(previous), $"star rating went down at circle size {circleSize}");
+                previous = stars;
+            }
+        }
+
+        [Test]
         public void TestApproximateStarRatingReflectsRateSlider()
         {
             var beatmap = TestResources.CreateTestBeatmapSetInfo(1).Beatmaps[0];
