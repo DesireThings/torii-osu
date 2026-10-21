@@ -199,6 +199,13 @@ namespace osu.Game.Beatmaps
 
         // The Difficulty Adjust factors below were fitted to the osu! difficulty calculator, on log(exact / nomod) star rating
         // across a sample of real beatmaps with each setting swept over its extended range.
+        // Raising CS and lowering AR use a piecewise-linear slope: the calculator's response starts slowly (small circle bonus,
+        // note density threshold) and then steepens, so a single slope over-estimated the common range (CS 5-7, AR 5-8) to fit the extremes.
+
+        private static readonly double[] circle_size_knots = { 0.15, 0.4, 0.8 };
+        private static readonly double[] circle_size_slopes = { 0.4934, 0.6807, 0.8167, 0.674 };
+        private static readonly double[] approach_rate_knots = { 0.25, 0.5, 0.9 };
+        private static readonly double[] approach_rate_slopes = { 0.126, 0.2574, 0.3386, 0.223 };
 
         /// <summary>
         /// Circle size scales aim distances through the object radius.
@@ -206,7 +213,7 @@ namespace osu.Game.Beatmaps
         private static double difficultyAdjustCircleSizeFactor(double baseCircleSize, double circleSize)
         {
             double l = Math.Log(osuRadius(baseCircleSize) / osuRadius(circleSize));
-            return Math.Exp(l > 0 ? 0.691 * l : 0.419 * l);
+            return Math.Exp(l > 0 ? piecewiseLinear(l, circle_size_knots, circle_size_slopes) : 0.419 * l);
         }
 
         /// <summary>
@@ -223,9 +230,33 @@ namespace osu.Game.Beatmaps
             double shorter = Math.Min(l, 0);
             double belowMinimumPreempt = (Math.Max(0, 450 - preempt) - Math.Max(0, 450 - basePreempt)) / 150;
 
-            return Math.Exp(longer * (0.2496 + 0.0091 * Math.Log(baseStars) - 0.0297 * (baseApproachRate - 8))
+            return Math.Exp(piecewiseLinear(longer, approach_rate_knots, approach_rate_slopes)
+                            + longer * (0.0144 * Math.Log(baseStars) - 0.0336 * (baseApproachRate - 8))
                             + 0.0272 * shorter
                             + belowMinimumPreempt * (0.1412 + 0.2979 * (10 - baseApproachRate) / 10));
+        }
+
+        /// <summary>
+        /// Piecewise-linear function of <paramref name="x"/> ≥ 0, with slope <c>slopes[i]</c> between <c>knots[i - 1]</c> and <c>knots[i]</c>.
+        /// Monotonic while every slope is positive.
+        /// </summary>
+        private static double piecewiseLinear(double x, double[] knots, double[] slopes)
+        {
+            double sum = 0;
+            double previous = 0;
+
+            for (int i = 0; i < slopes.Length; i++)
+            {
+                double knot = i < knots.Length ? knots[i] : double.PositiveInfinity;
+                sum += slopes[i] * (Math.Min(x, knot) - previous);
+
+                if (x <= knot)
+                    break;
+
+                previous = knot;
+            }
+
+            return sum;
         }
 
         /// <summary>
