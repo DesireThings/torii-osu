@@ -291,7 +291,11 @@ Official releases also replace the .NET garbage collector with the vendored Sato
 
 ### Building Nova
 
-The `nova` branch targets `net11.0`, and its `global.json` pins SDK `11.0.100-rc.2.26504.105` with roll-forward disabled, so that exact SDK must be installed. The layout and steps are the same as above:
+The `nova` branch targets `net11.0`, and its `global.json` pins SDK `11.0.100-rc.2.26504.105` with roll-forward disabled, so that exact SDK must be installed.
+
+On Windows and macOS, use the installer from the [.NET 11 download page](https://dotnet.microsoft.com/download/dotnet/11.0). Linux distro repos generally don't package .NET previews, so download the `11.0.100-rc.2.26504.105` Linux binary tarball from that page, extract it to a folder of your choice, and run that folder's `dotnet` for Nova builds (for example `~/dotnet-11/dotnet build osu.Desktop`). The SDK is picked from the `dotnet` you run, so this leaves your system .NET untouched.
+
+The layout and steps are the same as above:
 
 ```shell
 git -C torii-osu checkout nova
