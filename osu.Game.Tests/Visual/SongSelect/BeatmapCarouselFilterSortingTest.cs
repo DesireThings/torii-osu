@@ -239,7 +239,7 @@ namespace osu.Game.Tests.Visual.SongSelect
             Assert.That(nomodResults[0], Is.EqualTo(setA.Beatmaps[0]));
             Assert.That(nomodResults[1], Is.EqualTo(setB.Beatmaps[0]));
 
-            // DoubleTime scales both up (setA ≈ 5.34, setB ≈ 6.85) and preserves ascending order.
+            // DoubleTime scales both up (setA ≈ 5.71, setB ≈ 7.32) and preserves ascending order.
             var dtResults = (await runSorting(SortMode.Difficulty, new List<BeatmapSetInfo> { setB, setA }, new[] { new OsuModDoubleTime() })).ToList();
             Assert.That(dtResults[0], Is.EqualTo(setA.Beatmaps[0]));
             Assert.That(dtResults[1], Is.EqualTo(setB.Beatmaps[0]));
@@ -345,7 +345,7 @@ namespace osu.Game.Tests.Visual.SongSelect
 
             var mods = new[] { new OsuModDoubleTime() };
 
-            // Under approximation alone, setA (≈ 5.34) would sort before setB (≈ 6.85).
+            // Under approximation alone, setA (≈ 5.71) would sort before setB (≈ 7.32).
             // Only setA is pre-populated in the cache, with an exact value of 8.0, so it should sort after setB.
             var cache = new TestBeatmapDifficultyCache
             {
