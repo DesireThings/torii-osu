@@ -239,7 +239,7 @@ No Veldrid fork is needed any more — the graphics backend comes from nuget.org
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for `master` (stable). Nova needs the exact [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) `11.0.100-rc.2.26504.105` — see [Building Nova](#building-nova).
 - An IDE with .NET 10 support — [JetBrains Rider](https://www.jetbrains.com/rider/), [Visual Studio 2026](https://visualstudio.microsoft.com/), or [VS Code](https://code.visualstudio.com/) with the C# Dev Kit. The `dotnet` CLI alone is enough to build.
-- Windows and Linux are the tested platforms (both built by CI on every release). macOS compiles — CI cross-compiles it from Linux — but isn't currently shipped or tested on a Mac.
+- Windows, Linux and macOS are all built by CI on every release. Windows builds on a Windows runner; macOS is cross-compiled from Linux, not built on a Mac.
 
 ### Quick start
 
