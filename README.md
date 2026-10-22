@@ -224,42 +224,81 @@ This release changes the application identity, so it installs alongside an older
 
 ## Building from source
 
-This repository is a fork of [`ppy/osu`](https://github.com/ppy/osu). You need three sibling checkouts to build:
+This repository is a fork of [`ppy/osu`](https://github.com/ppy/osu). The framework and resources are referenced as **projects**, not NuGet packages, so you need three checkouts side by side, and the two dependencies **must use these folder names** (`osu.Game.csproj` references `..\..\toriirefresh-framework` and `..\..\toriirefresh-resources`):
 
 ```
 parent-dir/
-├── torii-osu          # this repository
-├── torii-framework    # https://github.com/ShikkesoraSIM/torii-framework  (osu-framework fork)
-└── torii-veldrid      # https://github.com/ShikkesoraSIM/torii-veldrid    (Veldrid fork)
+├── torii-osu                # this repository
+├── toriirefresh-framework   # clone of https://github.com/ShikkesoraSIM/torii-framework  (osu-framework fork)
+└── toriirefresh-resources   # clone of https://github.com/ShikkesoraSIM/torii-resources  (osu-resources fork)
 ```
 
-`torii-resources` (a fork of `osu-resources`) is pulled as a NuGet package — you don't need a local checkout unless you're modifying resources.
+No Veldrid fork is needed any more: the graphics backend comes from nuget.org through the framework.
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download) for stable builds (Nova builds bump to .NET 10 — see [the Nova section](#torii-nova-experimental-stream) — and require both 8 and 10 installed)
-- An IDE that supports C# 12+ — [Visual Studio 2022 17.8+](https://visualstudio.microsoft.com/), [JetBrains Rider](https://www.jetbrains.com/rider/), or [VS Code](https://code.visualstudio.com/) with the C# Dev Kit
-- Windows is the primary supported dev platform. Linux + macOS builds work via the same `dotnet` CLI but get less day-to-day testing.
+- **[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)** for `master` (stable). `global.json` requires 10.0.100 or a later 10.0 feature band.
+- **[.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) `11.0.100-rc.2.26504.105` exactly** for `nova` (see [Building Nova](#building-nova)).
+- `git`, and an IDE with .NET 10 support if you want one ([JetBrains Rider](https://www.jetbrains.com/rider/), [Visual Studio 2026](https://visualstudio.microsoft.com/), or [VS Code](https://code.visualstudio.com/) with the C# Dev Kit). The `dotnet` CLI alone is enough to build.
+- Windows is the primary supported dev platform. Linux and macOS build with the same commands but get less day-to-day testing.
 
 ### Quick start
 
 ```shell
-git clone https://github.com/ShikkesoraSIM/torii-framework.git
-git clone https://github.com/ShikkesoraSIM/torii-veldrid.git
+mkdir torii && cd torii
+
 git clone https://github.com/ShikkesoraSIM/torii-osu.git
+git clone https://github.com/ShikkesoraSIM/torii-framework.git toriirefresh-framework
+git clone https://github.com/ShikkesoraSIM/torii-resources.git toriirefresh-resources
+```
 
-cd torii-veldrid
-dotnet pack src/Veldrid/Veldrid.csproj -c Release -o bin/Packages/Release
-dotnet pack src/Veldrid.MetalBindings/Veldrid.MetalBindings.csproj -c Release -o bin/Packages/Release
-dotnet pack src/Veldrid.OpenGLBindings/Veldrid.OpenGLBindings.csproj -c Release -o bin/Packages/Release
+Then check out the framework and resources commits this branch is pinned to. CI and release builds use exactly these; the dependencies' default branches can be ahead and may not build against this branch. The pins are `FRAMEWORK_REF` and `RESOURCES_REF` near the top of [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
-cd ../torii-osu
+```shell
+git -C toriirefresh-framework checkout <FRAMEWORK_REF>
+git -C toriirefresh-resources checkout <RESOURCES_REF>
+```
+
+Build and run a Debug client:
+
+```shell
+cd torii-osu
 dotnet run --project osu.Desktop -c Debug
 ```
 
 The first run takes a few minutes (restore + initial build). Subsequent runs are fast.
 
-To build the Nova experimental tree, check out the `nova` branch in `torii-osu` (and use the framework + veldrid commit hashes that branch's `build-gu.yml` env declares — those are pinned per-release).
+Debug builds keep their data in a separate `osu-development` folder, so they never touch an installed Torii's beatmaps, scores or settings.
+
+### Building an installable Release build
+
+To get a self-contained build you can run without the SDK (for example to replace an older Torii build), publish `osu.Desktop` for your platform. This mirrors what the release workflow does:
+
+```shell
+cd torii-osu
+dotnet publish osu.Desktop/osu.Desktop.csproj -c Release -r win-x64 --self-contained -o publish/win-x64
+```
+
+Use `-r linux-x64`, `-r osx-x64` or `-r osx-arm64` for other platforms. Run `torii.exe` (Windows) or `./torii` (Linux/macOS) from the output folder.
+
+> [!WARNING]
+> Release builds use the **same data folder as the installed game** (`osu-torii`). A newer build may migrate your database, and an older build can then refuse to open it. Back that folder up before running a Release build from source, or test with a Debug build instead.
+
+### Building Nova
+
+The `nova` branch targets `net11.0`, and its `global.json` pins SDK `11.0.100-rc.2.26504.105` with roll-forward disabled, so that exact SDK must be installed. The layout and steps are the same as above:
+
+```shell
+git -C torii-osu checkout nova
+```
+
+Then re-check `FRAMEWORK_REF` / `RESOURCES_REF` in that branch's `.github/workflows/ci.yml`, check those commits out in the two dependency folders, and build as above (`bin/Debug/net11.0/` instead of `net10.0`).
+
+### Troubleshooting
+
+- **Hundreds of `CS0234: The type or namespace name 'Framework' does not exist in the namespace 'osu'`** (plus `ManagedBass` / `osuTK` not found): the dependency folders are missing or named wrongly. They must be called `toriirefresh-framework` and `toriirefresh-resources` and sit next to `torii-osu`.
+- **`A compatible .NET SDK was not found`**: install the SDK version listed under [Prerequisites](#prerequisites) for the branch you're on (`dotnet --list-sdks` shows what you have).
+- **Compile errors inside `osu.Framework` or `osu.Game.Resources`**: the dependencies aren't at the pinned commits. Re-run the two `git checkout` commands above.
 
 ---
 
